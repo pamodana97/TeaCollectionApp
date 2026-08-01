@@ -1,0 +1,4 @@
+# Audit database
+audit.db
+audit.db-shm
+audit.db-wal

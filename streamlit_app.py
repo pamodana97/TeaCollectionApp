@@ -1,5 +1,6 @@
 import streamlit as st
 import tempfile
+import calendar
 
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -7,6 +8,14 @@ from zoneinfo import ZoneInfo
 from excel_handler import ExcelHandler
 from session_manager import initialize
 from ui_helpers import format_value, highlight
+from auth import login
+from audit import verify_audit_password
+
+from audit_db import (
+    initialize_audit_db,
+    add_audit_record,
+    get_audit_records
+)
 
 # -------------------------------------------------------
 # Page Configuration
@@ -20,10 +29,23 @@ st.set_page_config(
 )
 
 # -------------------------------------------------------
+# Login Authentication
+# -------------------------------------------------------
+
+if not login():
+    st.stop()
+
+# -------------------------------------------------------
 # Initialize Session
 # -------------------------------------------------------
 
 initialize()
+
+# -------------------------------------------------------
+# Initialize Audit Database
+# -------------------------------------------------------
+
+initialize_audit_db()
 
 # -------------------------------------------------------
 # Create Excel Handler
@@ -128,9 +150,22 @@ with date_col2:
 
 with date_col3:
 
+    # Convert month name to month number
+    month_number = datetime.strptime(
+        selected_month,
+        "%B"
+    ).month
+
+    # Get number of days in selected month
+    days_in_month = calendar.monthrange(
+        selected_year,
+        month_number
+    )[1]
+
+    # Display only valid days
     selected_day = st.selectbox(
         "Day",
-        list(range(1, 32))
+        list(range(1, days_in_month + 1))
     )
 
 # Customer Row
@@ -170,10 +205,35 @@ if st.button(
 
     try:
 
+        old_value = sheet.cell(
+            row=handler.find_customer_row(customer_code),
+            column=handler.find_date_column(selected_day)
+        ).value
+
         row, column = handler.update(
             customer_code,
             selected_day,
             amount
+        )
+
+        # -------------------------------------------------------
+        # Add Audit Record
+        # -------------------------------------------------------
+
+        # -------------------------------------------------------
+        # Save Audit Record to SQLite
+        # -------------------------------------------------------
+
+        add_audit_record(
+            customer_code=customer_code,
+            customer_name=customer_name,
+            year=selected_year,
+            month=selected_month,
+            day=selected_day,
+            old_amount=old_value,
+            new_amount=amount,
+            excel_row=row,
+            excel_column=column
         )
 
         handler.save(
@@ -253,6 +313,23 @@ st.dataframe(
 # -------------------------------------------------------
 
 with st.sidebar:
+
+    st.write(
+    f"👤 {st.session_state.get('username', '')}"
+    )
+
+    if st.button(
+        "🚪 Logout",
+        use_container_width=True,
+        key="logout_button"
+    ):
+
+        st.session_state["logged_in"] = False
+        st.session_state["username"] = ""
+
+        st.rerun()
+
+    st.markdown("---")
 
     st.title("🍃 Menu")
     
@@ -405,4 +482,131 @@ with st.sidebar:
 
                 st.rerun()
 
+    st.markdown("---")
 
+    # ---------------------------------------------------
+    # Audit Panel
+    # ---------------------------------------------------
+
+    if st.button(
+        "🔐 Audit Panel",
+        use_container_width=True,
+        key="audit_panel_button"
+    ):
+
+        st.session_state["show_audit_panel"] = (
+            not st.session_state["show_audit_panel"]
+        )
+
+
+    if st.session_state["show_audit_panel"]:
+
+        if not st.session_state["audit_authenticated"]:
+
+            st.subheader("🔐 Audit Access")
+
+            audit_password = st.text_input(
+                "Password",
+                type="password",
+                key="audit_password"
+            )
+
+            if st.button(
+                "Unlock",
+                use_container_width=True,
+                key="unlock_audit_button"
+            ):
+
+                if verify_audit_password(
+                    audit_password
+                ):
+
+                    st.session_state[
+                        "audit_authenticated"
+                    ] = True
+
+                    st.rerun()
+
+                else:
+
+                    st.error(
+                        "Incorrect password."
+                    )
+
+        else:
+
+            st.subheader("📋 Audit History")
+
+            audit_records = get_audit_records()
+
+            if not audit_records:
+
+                st.info(
+                    "No audit records available."
+                )
+
+            else:
+
+                for record in audit_records:
+
+                    (
+                        record_id,
+                        customer_code,
+                        customer_name,
+                        year,
+                        month,
+                        day,
+                        old_amount,
+                        new_amount,
+                        updated_at
+                    ) = record
+
+                    updated_time = datetime.fromisoformat(
+                        updated_at
+                    )
+
+                    # Format old amount
+                    if old_amount is None:
+                        old_amount_display = "-"
+                    else:
+                        old_amount_display = f"{old_amount:g} Kg"
+
+                    # Format new amount
+                    new_amount_display = f"{new_amount:g} Kg"
+
+                    st.markdown(
+                        f"""
+                        **Customer:**  
+                        {customer_code} - {customer_name}
+
+                        **Collection Date:**  
+                        {year} - {month} - {day}
+
+                        **Old Amount:**  
+                        {old_amount_display}
+
+                        **New Amount:**  
+                        {new_amount_display}
+
+                        **Updated:**  
+                        {updated_time.strftime('%d-%m-%Y %I:%M:%S %p')}
+                        """
+                    )
+
+                    st.markdown("---")
+
+        if st.button(
+                "🔒 Lock Audit Panel",
+                use_container_width=True,
+                key="lock_audit_button"
+            ):
+
+                st.session_state[
+                    "audit_authenticated"
+                ] = False
+
+                st.session_state[
+                    "show_audit_panel"
+                ] = False
+
+                st.rerun()            
