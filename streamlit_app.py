@@ -495,13 +495,22 @@ with st.sidebar:
     ):
 
         st.session_state["show_audit_panel"] = (
-            not st.session_state["show_audit_panel"]
+            not st.session_state.get(
+                "show_audit_panel",
+                False
+            )
         )
 
 
-    if st.session_state["show_audit_panel"]:
+    if st.session_state.get(
+        "show_audit_panel",
+        False
+    ):
 
-        if not st.session_state["audit_authenticated"]:
+        if not st.session_state.get(
+            "audit_authenticated",
+            False
+        ):
 
             st.subheader("🔐 Audit Access")
 
