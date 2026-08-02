@@ -75,3 +75,149 @@ def save_collection(
     finally:
 
         connection.close()
+
+# -------------------------------------------------------
+# Save Customers
+# -------------------------------------------------------
+
+def save_customers(customer_df):
+
+    connection = get_connection()
+
+    try:
+
+        cursor = connection.cursor()
+
+        for _, row in customer_df.iterrows():
+
+            customer_code = str(
+                row["Customer Code"]
+            ).strip()
+
+            customer_name = str(
+                row["Customer Name"]
+            ).strip()
+
+            cursor.execute(
+                """
+                INSERT INTO customers (
+                    customer_code,
+                    customer_name,
+                    updated_at
+                )
+                VALUES (
+                    %s, %s, NOW()
+                )
+
+                ON CONFLICT (customer_code)
+
+                DO UPDATE SET
+                    customer_name = EXCLUDED.customer_name,
+                    updated_at = NOW()
+                """,
+                (
+                    customer_code,
+                    customer_name
+                )
+            )
+
+        connection.commit()
+
+    finally:
+
+        connection.close()
+
+# -------------------------------------------------------
+# Save Monthly Workbook
+# -------------------------------------------------------
+
+def save_monthly_workbook(
+    year,
+    month,
+    filename
+):
+
+    connection = get_connection()
+
+    try:
+
+        cursor = connection.cursor()
+
+        cursor.execute(
+            """
+            INSERT INTO monthly_workbooks (
+                collection_year,
+                collection_month,
+                original_filename,
+                updated_at
+            )
+
+            VALUES (
+                %s, %s, %s, NOW()
+            )
+
+            ON CONFLICT (
+                collection_year,
+                collection_month
+            )
+
+            DO UPDATE SET
+                original_filename =
+                    EXCLUDED.original_filename,
+                updated_at = NOW()
+            """,
+            (
+                int(year),
+                str(month),
+                str(filename)
+            )
+        )
+
+        connection.commit()
+
+    finally:
+
+        connection.close()
+
+# -------------------------------------------------------
+# Get Saved Collections
+# -------------------------------------------------------
+
+def get_collections(
+    year,
+    month
+):
+
+    connection = get_connection()
+
+    try:
+
+        cursor = connection.cursor()
+
+        cursor.execute(
+            """
+            SELECT
+                customer_code,
+                collection_day,
+                amount
+            FROM tea_collections
+
+            WHERE
+                collection_year = %s
+                AND collection_month = %s
+
+            ORDER BY
+                customer_code,
+                collection_day
+            """,
+            (
+                int(year),
+                str(month)
+            )
+        )
+
+        return cursor.fetchall()
+
+    finally:
+
+        connection.close()

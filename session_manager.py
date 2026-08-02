@@ -6,7 +6,13 @@ def initialize():
         "saved_workbooks":[],
         "show_saved_panel":False,
         "temp_file":None,
-        "uploaded_filename":None
+        "uploaded_filename":None,
+
+        # Year / Month access
+        "date_fields_unlocked": False,
+        "show_date_password": False,
+        "selected_year": None,
+        "selected_month": None
     }
     for k,v in defaults.items():
         st.session_state.setdefault(k,v)
