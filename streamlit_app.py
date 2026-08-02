@@ -669,6 +669,7 @@ if day_column is not None:
 
     daily_total = daily_values.sum()
 
+st.markdown("---")
 
 st.markdown(
     f"**🍃 Daily Total Tea Collection:** "
@@ -769,8 +770,6 @@ if submit_entry:
 # -------------------------------------------------------
 # Current Excel Sheet
 # -------------------------------------------------------
-
-st.markdown("---")
 
 st.markdown(
     f"""
