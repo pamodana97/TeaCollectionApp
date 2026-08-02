@@ -221,3 +221,43 @@ def get_collections(
     finally:
 
         connection.close()
+
+# -------------------------------------------------------
+# Delete Tea Collection
+# -------------------------------------------------------
+
+def delete_collection(
+    customer_code,
+    year,
+    month,
+    day
+):
+
+    connection = get_connection()
+
+    try:
+
+        cursor = connection.cursor()
+
+        cursor.execute(
+            """
+            DELETE FROM tea_collections
+            WHERE
+                customer_code = %s
+                AND collection_year = %s
+                AND collection_month = %s
+                AND collection_day = %s
+            """,
+            (
+                str(customer_code),
+                int(year),
+                str(month),
+                int(day)
+            )
+        )
+
+        connection.commit()
+
+    finally:
+
+        connection.close()

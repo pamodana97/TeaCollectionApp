@@ -8,6 +8,9 @@ def initialize():
         "temp_file":None,
         "uploaded_filename":None,
 
+        # Remove Entry
+        "show_remove_confirmation": False,
+
         # Year / Month access
         "date_fields_unlocked": False,
         "show_date_password": False,

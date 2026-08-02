@@ -1,6 +1,8 @@
 import streamlit as st
 import tempfile
 import calendar
+import pandas as pd
+import time
 
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -16,7 +18,10 @@ from auth import (
 
 from audit import verify_audit_password
 
-from database import save_collection
+from database import (
+    save_collection,
+    delete_collection
+)
 
 from workbook_storage import (
     upload_workbook,
@@ -190,6 +195,23 @@ workbook, sheet = handler.load(
 df = handler.dataframe()
 
 customer_df, customer_dict = handler.get_customer_data()
+
+
+# Customer Code → Customer Name
+code_to_name = dict(
+    zip(
+        customer_df["Customer Code"],
+        customer_df["Customer Name"]
+    )
+)
+
+# Customer Name → Customer Code
+name_to_code = dict(
+    zip(
+        customer_df["Customer Name"],
+        customer_df["Customer Code"]
+    )
+)
 
 # -------------------------------------------------------
 # Entry Form
@@ -416,120 +438,334 @@ if st.session_state.get(
 
         st.rerun()
 
+# -------------------------------------------------------
+# Customer Lists
+# -------------------------------------------------------
+
+customer_codes = (
+    customer_df["Customer Code"].tolist()
+)
+
+customer_names = (
+    customer_df["Customer Name"].tolist()
+)
+
+
+# -------------------------------------------------------
+# Initialize Customer Selection
+# -------------------------------------------------------
+
+if "customer_code_select" not in st.session_state:
+
+    st.session_state["customer_code_select"] = (
+        customer_codes[0]
+    )
+
+
+if "customer_name_select" not in st.session_state:
+
+    first_code = st.session_state[
+        "customer_code_select"
+    ]
+
+    st.session_state["customer_name_select"] = (
+        code_to_name[first_code]
+    )
+
+
+# -------------------------------------------------------
+# Customer Code Changed
+# -------------------------------------------------------
+
+def customer_code_changed():
+
+    selected_code = st.session_state[
+        "customer_code_select"
+    ]
+
+    corresponding_name = code_to_name.get(
+        selected_code
+    )
+
+    if corresponding_name is not None:
+
+        st.session_state[
+            "customer_name_select"
+        ] = corresponding_name
+
+
+# -------------------------------------------------------
+# Customer Name Changed
+# -------------------------------------------------------
+
+def customer_name_changed():
+
+    selected_name = st.session_state[
+        "customer_name_select"
+    ]
+
+    corresponding_code = name_to_code.get(
+        selected_name
+    )
+
+    if corresponding_code is not None:
+
+        st.session_state[
+            "customer_code_select"
+        ] = corresponding_code
+
+
+# -------------------------------------------------------
 # Customer Row
+# -------------------------------------------------------
+
 col1, col2 = st.columns([1, 2])
 
+
 with col1:
+
     customer_code = st.selectbox(
         "Customer Code",
-        customer_df["Customer Code"]
+        customer_codes,
+        key="customer_code_select",
+        on_change=customer_code_changed
     )
+
 
 with col2:
-    customer_name = customer_dict.get(customer_code, "")
 
-    st.text_input(
+    customer_name = st.selectbox(
         "Customer Name",
-        value=customer_name,
-        disabled=True
+        customer_names,
+        key="customer_name_select",
+        on_change=customer_name_changed
     )
 
+# -------------------------------------------------------
+# Amount State
+# -------------------------------------------------------
+
+if "amount_input" not in st.session_state:
+    st.session_state["amount_input"] = ""
+
+if "submit_from_enter" not in st.session_state:
+    st.session_state["submit_from_enter"] = False
+
+if "reset_amount" not in st.session_state:
+    st.session_state["reset_amount"] = False
+
+
+# Reset before Amount widget is created
+if st.session_state["reset_amount"]:
+
+    st.session_state["amount_input"] = ""
+    st.session_state["reset_amount"] = False
+
+
+# -------------------------------------------------------
+# Enter Callback
+# -------------------------------------------------------
+
+def amount_entered():
+
+    st.session_state[
+        "submit_from_enter"
+    ] = True
+
+
+# -------------------------------------------------------
 # Amount
-amount = st.number_input(
+# -------------------------------------------------------
+
+st.text_input(
     "Amount (Kg)",
-    min_value=0.0,
-    step=0.5,
-    format="%.2f"
+    key="amount_input",
+    on_change=amount_entered,
+    placeholder="Enter amount"
 )
+
+
+# -------------------------------------------------------
+# Convert Amount
+# -------------------------------------------------------
+
+try:
+
+    amount = float(
+        st.session_state["amount_input"]
+    )
+
+    amount_valid = amount >= 0
+
+except (ValueError, TypeError):
+
+    amount = 0.0
+    amount_valid = False
 
 # -------------------------------------------------------
 # Submit Entry
 # -------------------------------------------------------
 
-if st.button(
+submit_clicked = st.button(
     "Submit Entry",
-    use_container_width=True
+    use_container_width=True,
+    key="submit_entry_button"
+)
+
+submit_entry = (
+    submit_clicked
+    or st.session_state["submit_from_enter"]
+)
+
+# -------------------------------------------------------
+# Submit Success Message
+# -------------------------------------------------------
+
+if st.session_state.pop(
+    "submit_success",
+    False
 ):
 
-    try:
+    success_placeholder = st.empty()
 
-        old_value = sheet.cell(
-            row=handler.find_customer_row(customer_code),
-            column=handler.find_date_column(selected_day)
-        ).value
+    success_placeholder.success(
+        "✅ Amount Added Successfully"
+    )
 
-        row, column = handler.update(
-            customer_code,
-            selected_day,
-            amount
+    time.sleep(3)
+
+    success_placeholder.empty()
+
+# -------------------------------------------------------
+# Selected Date / Daily Team Total
+# -------------------------------------------------------
+
+st.markdown(
+    f"**📅 Date:** "
+    f"{selected_day:02d} {selected_month} {selected_year}"
+)
+
+
+# Find the selected Day column in DataFrame
+day_column = None
+
+for column in df.columns:
+
+    if str(column) == str(selected_day):
+
+        day_column = column
+        break
+
+
+# Calculate total collection for selected day
+daily_total = 0.0
+
+if day_column is not None:
+
+    daily_values = pd.to_numeric(
+        df[day_column],
+        errors="coerce"
+    )
+
+    daily_total = daily_values.sum()
+
+
+st.markdown(
+    f"**🍃 Daily Total Team Collection:** "
+    f"{daily_total:,.2f} Kg"
+)
+
+if submit_entry:
+
+    # Clear Enter flag immediately
+    st.session_state["submit_from_enter"] = False
+
+    if not amount_valid:
+
+        st.error(
+            "Please enter a valid Amount."
         )
 
-        # -------------------------------------------------------
-        # Save Collection Permanently
-        # -------------------------------------------------------
+    else:
+        try:
 
-        save_collection(
-            customer_code=customer_code,
-            customer_name=customer_name,
-            year=selected_year,
-            month=selected_month,
-            day=selected_day,
-            amount=amount
-        )
+            old_value = sheet.cell(
+                row=handler.find_customer_row(customer_code),
+                column=handler.find_date_column(selected_day)
+            ).value
 
-        # -------------------------------------------------------
-        # Save Audit Record to SQLite
-        # -------------------------------------------------------
+            row, column = handler.update(
+                customer_code,
+                selected_day,
+                amount
+            )
 
-        add_audit_record(
-            customer_code=customer_code,
-            customer_name=customer_name,
-            year=selected_year,
-            month=selected_month,
-            day=selected_day,
-            old_amount=old_value,
-            new_amount=amount,
-            excel_row=row,
-            excel_column=column
-        )
+            # -------------------------------------------------------
+            # Save Collection Permanently
+            # -------------------------------------------------------
 
-        handler.save(
-            st.session_state["temp_file"]
-        )
+            save_collection(
+                customer_code=customer_code,
+                customer_name=customer_name,
+                year=selected_year,
+                month=selected_month,
+                day=selected_day,
+                amount=amount
+            )
 
-        # -------------------------------------------------------
-        # Backup Updated Excel to Supabase Storage
-        # -------------------------------------------------------
+            # -------------------------------------------------------
+            # Save Audit Record to SQLite
+            # -------------------------------------------------------
 
-        sync_workbook(
-            st.session_state["temp_file"],
-            selected_year,
-            selected_month
-        )
+            add_audit_record(
+                customer_code=customer_code,
+                customer_name=customer_name,
+                year=selected_year,
+                month=selected_month,
+                day=selected_day,
+                old_amount=old_value,
+                new_amount=amount,
+                excel_row=row,
+                excel_column=column
+            )
 
-        st.session_state["updated_cells"].append(
-            {
-                "row": row,
-                "column": column,
-                "year": selected_year,
-                "month": selected_month,
-                "day": selected_day,
-                "amount": amount,
-                "time": datetime.now()
-            }
-        )
+            handler.save(
+                st.session_state["temp_file"]
+            )
 
-        success = st.empty()
+            # -------------------------------------------------------
+            # Backup Updated Excel to Supabase Storage
+            # -------------------------------------------------------
 
-        success.success(
-            "✅ Amount Added Successfully"
-        )
+            sync_workbook(
+                st.session_state["temp_file"],
+                selected_year,
+                selected_month
+            )
 
-        st.rerun()
+            st.session_state["updated_cells"].append(
+                {
+                    "row": row,
+                    "column": column,
+                    "year": selected_year,
+                    "month": selected_month,
+                    "day": selected_day,
+                    "amount": amount,
+                    "time": datetime.now()
+                }
+            )
 
-    except Exception as e:
+            # Reset Amount on NEXT rerun
+            st.session_state["reset_amount"] = True
 
-        st.error(str(e))
+            # Show success message after rerun
+            st.session_state["submit_success"] = True
+
+            st.rerun()
+
+        except Exception as e:
+
+            st.error(str(e))
 # -------------------------------------------------------
 # Current Excel Sheet
 # -------------------------------------------------------
@@ -563,11 +799,373 @@ styled_df = (
 )
 
 
-st.dataframe(
+table_event = st.dataframe(
     styled_df,
     use_container_width=True,
-    height=500
+    height=500,
+    on_select="rerun",
+    selection_mode="single-cell",
+    key="tea_collection_table"
 )
+
+# -------------------------------------------------------
+# Selected Table Cell
+# -------------------------------------------------------
+
+selected_cell = None
+selected_value = None
+selected_row_index = None
+selected_column = None
+
+remove_enabled = False
+
+
+if table_event.selection.cells:
+
+    selected_cell = (
+        table_event.selection.cells[0]
+    )
+
+    # Streamlit returns:
+    # (row_position, column_name)
+    selected_row_index = selected_cell[0]
+    selected_column = selected_cell[1]
+
+
+    # ---------------------------------------------------
+    # Convert Day column to integer
+    # ---------------------------------------------------
+
+    if selected_column not in [
+        "Customer Code",
+        "Customer Name"
+    ]:
+
+        try:
+
+            selected_column = int(
+                selected_column
+            )
+
+        except (ValueError, TypeError):
+
+            selected_column = None
+
+
+    # ---------------------------------------------------
+    # Get Selected Value
+    # ---------------------------------------------------
+
+    if (
+        selected_column is not None
+        and selected_column in df.columns
+    ):
+
+        selected_value = df.iloc[
+            selected_row_index
+        ][selected_column]
+
+
+        # -----------------------------------------------
+        # Only Day columns containing a value
+        # can be removed
+        # -----------------------------------------------
+
+        if selected_column not in [
+            "Customer Code",
+            "Customer Name"
+        ]:
+
+            if (
+                selected_value is not None
+                and not pd.isna(selected_value)
+                and str(selected_value).strip() not in ["", "-"]
+            ):
+
+                remove_enabled = True
+
+if remove_enabled:
+
+    remove_customer_code = df.iloc[
+        selected_row_index
+    ]["Customer Code"]
+
+    remove_customer_name = df.iloc[
+        selected_row_index
+    ]["Customer Name"]
+
+    st.info(
+        f"Selected Entry: "
+        f"{remove_customer_code} - "
+        f"{remove_customer_name} | "
+        f"Day {selected_column} | "
+        f"{selected_value} Kg"
+    )
+
+remove_clicked = st.button(
+    "🗑️ Remove Entry",
+    disabled=not remove_enabled,
+    use_container_width=True,
+    key="remove_selected_entry"
+)
+
+
+# -------------------------------------------------------
+# Remove Entry Success Message
+# -------------------------------------------------------
+
+if st.session_state.pop(
+    "remove_success",
+    False
+):
+
+    st.success(
+        "✅ Entry removed successfully."
+    )
+
+if remove_clicked:
+
+    st.session_state[
+        "remove_entry_data"
+    ] = {
+        "row_index": selected_row_index,
+        "column": selected_column,
+        "value": selected_value,
+        "customer_code": remove_customer_code,
+        "customer_name": remove_customer_name
+    }
+
+    st.session_state[
+        "show_remove_confirmation"
+    ] = True
+
+    st.rerun()
+
+# -------------------------------------------------------
+# Remove Entry Confirmation
+# -------------------------------------------------------
+
+if st.session_state.get(
+    "show_remove_confirmation",
+    False
+):
+
+    remove_data = st.session_state.get(
+        "remove_entry_data"
+    )
+
+    if remove_data:
+
+        st.warning(
+            f"⚠️ Remove "
+            f"{remove_data['value']} Kg for "
+            f"{remove_data['customer_name']} "
+            f"(Customer Code: "
+            f"{remove_data['customer_code']}) "
+            f"on Day {remove_data['column']}?"
+        )
+
+        confirm_col1, confirm_col2 = st.columns(2)
+
+
+        # ---------------------------------------------------
+        # Cancel Button
+        # ---------------------------------------------------
+
+        with confirm_col1:
+
+            cancel_remove = st.button(
+                "Cancel",
+                use_container_width=True,
+                key="cancel_remove_entry"
+            )
+
+
+        # ---------------------------------------------------
+        # Confirm Button
+        # ---------------------------------------------------
+
+        with confirm_col2:
+
+            confirm_remove = st.button(
+                "🗑️ Confirm Remove",
+                type="primary",
+                use_container_width=True,
+                key="confirm_remove_entry"
+            )
+
+
+        # ---------------------------------------------------
+        # Cancel Remove
+        # ---------------------------------------------------
+
+        if cancel_remove:
+
+            st.session_state[
+                "show_remove_confirmation"
+            ] = False
+
+            st.session_state.pop(
+                "remove_entry_data",
+                None
+            )
+
+            st.rerun()
+
+
+        # ---------------------------------------------------
+        # Confirm Remove
+        # ---------------------------------------------------
+
+        if confirm_remove:
+
+            with st.spinner(
+                "Removing entry and syncing workbook..."
+            ):
+
+                try:
+
+                    # -------------------------------------------
+                    # Get selected entry information
+                    # -------------------------------------------
+
+                    remove_customer_code = (
+                        remove_data["customer_code"]
+                    )
+
+                    remove_customer_name = (
+                        remove_data["customer_name"]
+                    )
+
+                    remove_day = int(
+                        remove_data["column"]
+                    )
+
+                    old_amount = remove_data[
+                        "value"
+                    ]
+
+
+                    # -------------------------------------------
+                    # Find corresponding Excel cell
+                    # -------------------------------------------
+
+                    excel_row = (
+                        handler.find_customer_row(
+                            remove_customer_code
+                        )
+                    )
+
+                    excel_column = (
+                        handler.find_date_column(
+                            remove_day
+                        )
+                    )
+
+
+                    # -------------------------------------------
+                    # Clear Excel cell
+                    # -------------------------------------------
+
+                    sheet.cell(
+                        row=excel_row,
+                        column=excel_column
+                    ).value = None
+
+
+                    # -------------------------------------------
+                    # Delete PostgreSQL record
+                    # -------------------------------------------
+
+                    delete_collection(
+                        customer_code=remove_customer_code,
+                        year=selected_year,
+                        month=selected_month,
+                        day=remove_day
+                    )
+
+
+                    # -------------------------------------------
+                    # Add deletion to Audit
+                    # -------------------------------------------
+
+                    add_audit_record(
+                        customer_code=remove_customer_code,
+                        customer_name=remove_customer_name,
+                        year=selected_year,
+                        month=selected_month,
+                        day=remove_day,
+                        old_amount=old_amount,
+                        new_amount=0,
+                        excel_row=excel_row,
+                        excel_column=excel_column
+                    )
+
+
+                    # -------------------------------------------
+                    # Save local workbook
+                    # -------------------------------------------
+
+                    handler.save(
+                        st.session_state["temp_file"]
+                    )
+
+
+                    # -------------------------------------------
+                    # Sync updated workbook to Supabase
+                    # -------------------------------------------
+
+                    sync_workbook(
+                        st.session_state["temp_file"],
+                        selected_year,
+                        selected_month
+                    )
+
+
+                    # -------------------------------------------
+                    # Remove highlight if applicable
+                    # -------------------------------------------
+
+                    st.session_state[
+                        "updated_cells"
+                    ] = [
+                        item
+                        for item in st.session_state[
+                            "updated_cells"
+                        ]
+                        if not (
+                            item.get("row") == excel_row
+                            and
+                            item.get("column") == excel_column
+                        )
+                    ]
+
+
+                    # -------------------------------------------
+                    # Close confirmation
+                    # -------------------------------------------
+
+                    st.session_state[
+                        "show_remove_confirmation"
+                    ] = False
+
+                    st.session_state.pop(
+                        "remove_entry_data",
+                        None
+                    )
+
+
+                    # Show success message after rerun
+                    st.session_state["remove_success"] = True
+
+                    st.rerun()
+
+
+                except Exception as e:
+
+                    st.error(
+                        f"Unable to remove entry: {e}"
+                    )
 
 # -------------------------------------------------------
 # Navigation Drawer
