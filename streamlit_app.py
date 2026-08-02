@@ -10,6 +10,7 @@ from session_manager import initialize
 from ui_helpers import format_value, highlight
 from auth import login
 from audit import verify_audit_password
+from database import save_collection
 
 from audit_db import (
     initialize_audit_db,
@@ -217,8 +218,17 @@ if st.button(
         )
 
         # -------------------------------------------------------
-        # Add Audit Record
+        # Save Collection Permanently
         # -------------------------------------------------------
+
+        save_collection(
+            customer_code=customer_code,
+            customer_name=customer_name,
+            year=selected_year,
+            month=selected_month,
+            day=selected_day,
+            amount=amount
+        )
 
         # -------------------------------------------------------
         # Save Audit Record to SQLite
