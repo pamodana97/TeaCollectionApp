@@ -17,14 +17,12 @@ VALID_PASSWORD = "admin123"
 
 
 # -------------------------------------------------------
-# Cookie Manager
+# ONE Cookie Manager
 # -------------------------------------------------------
 
-def get_cookie_manager():
-
-    return stx.CookieManager(
-        key="tea_collection_cookie_manager"
-    )
+cookie_manager = stx.CookieManager(
+    key="tea_collection_cookie_manager"
+)
 
 
 # -------------------------------------------------------
@@ -43,8 +41,6 @@ def current_timestamp():
 # -------------------------------------------------------
 
 def create_login_cookie(username):
-
-    cookie_manager = get_cookie_manager()
 
     now = current_timestamp()
 
@@ -72,8 +68,6 @@ def create_login_cookie(username):
 
 def delete_login_cookie():
 
-    cookie_manager = get_cookie_manager()
-
     try:
 
         cookie_manager.delete(
@@ -89,8 +83,6 @@ def delete_login_cookie():
 # -------------------------------------------------------
 
 def restore_login_from_cookie():
-
-    cookie_manager = get_cookie_manager()
 
     cookie_value = cookie_manager.get(
         COOKIE_NAME
@@ -170,7 +162,12 @@ def refresh_login_cookie():
 
 def logout():
 
-    delete_login_cookie()
+    try:
+        cookie_manager.delete(
+            COOKIE_NAME
+        )
+    except Exception:
+        pass
 
     st.session_state["logged_in"] = False
     st.session_state["username"] = ""
