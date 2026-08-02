@@ -71,7 +71,7 @@ handler = ExcelHandler()
 # Title
 # -------------------------------------------------------
 
-st.title("🍃 Tea Collection Entry System")
+st.title("🍃 Tea Collection Entry System - WIJEWANTHA STORES")
 st.markdown("---")
 
 # -------------------------------------------------------
