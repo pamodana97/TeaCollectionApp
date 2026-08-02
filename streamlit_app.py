@@ -676,6 +676,8 @@ st.markdown(
     f"{daily_total:,.2f} Kg"
 )
 
+st.markdown("---")
+
 if submit_entry:
 
     # Clear Enter flag immediately
