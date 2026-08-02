@@ -637,7 +637,7 @@ if st.session_state.pop(
     success_placeholder.empty()
 
 # -------------------------------------------------------
-# Selected Date / Daily Team Total
+# Selected Date / Daily Tea Total
 # -------------------------------------------------------
 
 st.markdown(
@@ -671,7 +671,7 @@ if day_column is not None:
 
 
 st.markdown(
-    f"**🍃 Daily Total Team Collection:** "
+    f"**🍃 Daily Total Tea Collection:** "
     f"{daily_total:,.2f} Kg"
 )
 
