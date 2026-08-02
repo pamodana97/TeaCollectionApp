@@ -640,6 +640,8 @@ if st.session_state.pop(
 # Selected Date / Daily Tea Total
 # -------------------------------------------------------
 
+st.markdown("---")
+
 st.markdown(
     f"**📅 Date:** "
     f"{selected_day:02d} {selected_month} {selected_year}"
@@ -668,8 +670,6 @@ if day_column is not None:
     )
 
     daily_total = daily_values.sum()
-
-st.markdown("---")
 
 st.markdown(
     f"**🍃 Daily Total Tea Collection:** "
