@@ -329,8 +329,6 @@ with st.sidebar:
 
         st.rerun()
 
-    st.markdown("---")
-
     st.title("🍃 Menu")
     
     st.markdown("---")
