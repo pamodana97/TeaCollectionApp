@@ -697,22 +697,57 @@ else:
 
 
 # -------------------------------------------------------
-# Two Column Summary
+# SUMMARY ROW 1
+# Selected Date | Last Customer + Amount
 # -------------------------------------------------------
 
-left_col, right_col = st.columns([1, 1])
+left_row1, right_row1 = st.columns([0.8, 1.2])
 
-
-# -------------------------------------------------------
-# LEFT SIDE
-# -------------------------------------------------------
-
-with left_col:
+with left_row1:
 
     st.markdown(
         f"**📅 Date:** "
         f"{selected_day:02d} {selected_month} {selected_year}"
     )
+
+
+with right_row1:
+
+    if last_entry:
+
+        st.markdown(
+            f"""
+<div style="text-align: right;">
+<strong>👤 Last Customer:</strong> {last_customer_name}
+&nbsp; | &nbsp;
+<strong>🍃 Amount:</strong> {last_amount:,.2f} Kg
+</div>
+""",
+            unsafe_allow_html=True
+        )
+
+    else:
+
+        st.markdown(
+            """
+<div style="text-align: right;">
+<strong>👤 Last Customer:</strong> -
+&nbsp; | &nbsp;
+<strong>🍃 Amount:</strong> -
+</div>
+""",
+            unsafe_allow_html=True
+        )
+
+
+# -------------------------------------------------------
+# SUMMARY ROW 2
+# Daily Total | Last Entry Date + Time
+# -------------------------------------------------------
+
+left_row2, right_row2 = st.columns([0.8, 1.2])
+
+with left_row2:
 
     st.markdown(
         f"**🍃 Daily Total Tea Collection:** "
@@ -720,44 +755,33 @@ with left_col:
     )
 
 
-# -------------------------------------------------------
-# RIGHT SIDE
-# -------------------------------------------------------
+with right_row2:
 
-with right_col:
+    if last_entry:
 
-    # Spacer pushes the information toward the right
-    spacer, info_col = st.columns([0.45, 0.55])
+        st.markdown(
+            f"""
+<div style="text-align: right;">
+<strong>📅 Date:</strong> {int(last_day):02d} {last_month} {last_year}
+&nbsp; | &nbsp;
+<strong>🕒 Time:</strong> {last_entry_time.strftime('%I:%M:%S %p')}
+</div>
+""",
+            unsafe_allow_html=True
+        )
 
-    with info_col:
+    else:
 
-        if last_entry:
-
-            st.markdown(
-                f"**👤 Last Customer:** {last_customer_name} "
-                f"\u2003|\u2003"
-                f"**🍃 Amount:** {last_amount:,.2f} Kg"
-            )
-
-            st.markdown(
-                f"**📅 Date:** "
-                f"{int(last_day):02d} {last_month} {last_year} "
-                f"\u2003|\u2003"
-                f"**🕒 Time:** "
-                f"{last_entry_time.strftime('%I:%M:%S %p')}"
-            )
-
-        else:
-
-            st.markdown(
-                "**👤 Last Customer:** - "
-                "| **🍃 Amount:** -"
-            )
-
-            st.markdown(
-                "**📅 Date:** - "
-                "| **🕒 Time:** -"
-            )
+        st.markdown(
+            """
+<div style="text-align: right;">
+<strong>📅 Date:</strong> -
+&nbsp; | &nbsp;
+<strong>🕒 Time:</strong> -
+</div>
+""",
+            unsafe_allow_html=True
+        )
 
 st.markdown("---")
 
