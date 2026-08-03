@@ -20,7 +20,8 @@ from audit import verify_audit_password
 
 from database import (
     save_collection,
-    delete_collection
+    delete_collection,
+    get_last_collection
 )
 
 from workbook_storage import (
@@ -636,16 +637,7 @@ if st.session_state.pop(
 
     success_placeholder.empty()
 
-# -------------------------------------------------------
-# Selected Date / Daily Tea Total
-# -------------------------------------------------------
-
 st.markdown("---")
-
-st.markdown(
-    f"**📅 Date:** "
-    f"{selected_day:02d} {selected_month} {selected_year}"
-)
 
 
 # Find the selected Day column in DataFrame
@@ -671,10 +663,101 @@ if day_column is not None:
 
     daily_total = daily_values.sum()
 
-st.markdown(
-    f"**🍃 Daily Total Tea Collection:** "
-    f"{daily_total:,.2f} Kg"
+# -------------------------------------------------------
+# Last Customer Entry
+# -------------------------------------------------------
+
+last_entry = get_last_collection(
+    selected_year,
+    selected_month
 )
+
+
+# -------------------------------------------------------
+# Selected Date / Daily Total + Last Entry
+# -------------------------------------------------------
+
+if last_entry:
+
+    last_customer_name = last_entry[0]
+    last_amount = last_entry[1]
+    last_year = last_entry[2]
+    last_month = last_entry[3]
+    last_day = last_entry[4]
+    last_entry_time = last_entry[5]
+
+else:
+
+    last_customer_name = "-"
+    last_amount = None
+    last_year = None
+    last_month = None
+    last_day = None
+    last_entry_time = None
+
+
+# -------------------------------------------------------
+# Two Column Summary
+# -------------------------------------------------------
+
+left_col, right_col = st.columns([1, 1])
+
+
+# -------------------------------------------------------
+# LEFT SIDE
+# -------------------------------------------------------
+
+with left_col:
+
+    st.markdown(
+        f"**📅 Date:** "
+        f"{selected_day:02d} {selected_month} {selected_year}"
+    )
+
+    st.markdown(
+        f"**🍃 Daily Total Tea Collection:** "
+        f"{daily_total:,.2f} Kg"
+    )
+
+
+# -------------------------------------------------------
+# RIGHT SIDE
+# -------------------------------------------------------
+
+with right_col:
+
+    # Spacer pushes the information toward the right
+    spacer, info_col = st.columns([0.45, 0.55])
+
+    with info_col:
+
+        if last_entry:
+
+            st.markdown(
+                f"**👤 Last Customer:** {last_customer_name} "
+                f"\u2003|\u2003"
+                f"**🍃 Amount:** {last_amount:,.2f} Kg"
+            )
+
+            st.markdown(
+                f"**📅 Date:** "
+                f"{int(last_day):02d} {last_month} {last_year} "
+                f"\u2003|\u2003"
+                f"**🕒 Time:** "
+                f"{last_entry_time.strftime('%I:%M:%S %p')}"
+            )
+
+        else:
+
+            st.markdown(
+                "**👤 Last Customer:** - "
+                "| **🍃 Amount:** -"
+            )
+
+            st.markdown(
+                "**📅 Date:** - "
+                "| **🕒 Time:** -"
+            )
 
 st.markdown("---")
 
@@ -758,7 +841,17 @@ if submit_entry:
                 }
             )
 
-            # Reset Amount on NEXT rerun
+            # -------------------------------------------------------
+            # Store Last Customer Entry
+            # -------------------------------------------------------
+
+            st.session_state["last_customer_name"] = customer_name
+
+            st.session_state["last_entry_time"] = datetime.now(
+                ZoneInfo("Asia/Colombo")
+            )
+
+         # Reset Amount on NEXT rerun
             st.session_state["reset_amount"] = True
 
             # Show success message after rerun
@@ -781,7 +874,6 @@ st.markdown(
     """,
     unsafe_allow_html=True
 )
-
 
 styled_df = (
     df.style

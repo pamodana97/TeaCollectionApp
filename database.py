@@ -261,3 +261,46 @@ def delete_collection(
     finally:
 
         connection.close()
+
+# -------------------------------------------------------
+# Get Last Collection Entry
+# -------------------------------------------------------
+
+def get_last_collection(
+    year,
+    month
+):
+
+    connection = get_connection()
+
+    try:
+
+        cursor = connection.cursor()
+
+        cursor.execute(
+            """
+            SELECT
+                customer_name,
+                amount,
+                collection_year,
+                collection_month,
+                collection_day,
+                updated_at
+            FROM tea_collections
+            WHERE
+                collection_year = %s
+                AND collection_month = %s
+            ORDER BY updated_at DESC
+            LIMIT 1
+            """,
+            (
+                int(year),
+                str(month)
+            )
+        )
+
+        return cursor.fetchone()
+
+    finally:
+
+        connection.close()
