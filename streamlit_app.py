@@ -3,9 +3,21 @@ import tempfile
 import calendar
 import pandas as pd
 import time
+import os
+import shutil
 
 from datetime import datetime
 from zoneinfo import ZoneInfo
+
+# -------------------------------------------------------
+# New Worksheet Template
+# -------------------------------------------------------
+
+TEMPLATE_PATH = os.path.join(
+    os.path.dirname(__file__),
+    "templates",
+    "New Worksheet.xlsx"
+)
 
 from excel_handler import ExcelHandler
 from session_manager import initialize
@@ -78,7 +90,6 @@ handler = ExcelHandler()
 # -------------------------------------------------------
 
 st.title("🍃 Tea Collection Entry System - WIJEWANTHA STORES")
-st.markdown("---")
 
 # -------------------------------------------------------
 # Current Sri Lanka Date
@@ -101,67 +112,31 @@ if st.session_state["selected_year"] is None:
 if st.session_state["selected_month"] is None:
     st.session_state["selected_month"] = current_month
 
-# -------------------------------------------------------
-# Upload / Restore Excel
-# -------------------------------------------------------
-
-uploaded_file = st.file_uploader(
-    "Upload / Replace Monthly Tea Collection Excel File",
-    type=["xlsx"],
-    key="workbook_uploader"
-)
-
 
 # -------------------------------------------------------
-# New Workbook Uploaded
-# -------------------------------------------------------
-
-if uploaded_file is not None:
-
-    # Only process if this is a different upload
-    if (
-        st.session_state["uploaded_filename"]
-        != uploaded_file.name
-    ):
-
-        file_bytes = uploaded_file.getvalue()
-
-        # Save permanently to Supabase Storage
-        upload_workbook(
-            file_bytes,
-            st.session_state["selected_year"],
-            st.session_state["selected_month"]
-        )
-
-        # Create local working copy
-        temp = tempfile.NamedTemporaryFile(
-            delete=False,
-            suffix=".xlsx"
-        )
-
-        temp.write(file_bytes)
-        temp.close()
-
-        st.session_state["temp_file"] = (
-            temp.name
-        )
-
-        st.session_state[
-            "uploaded_filename"
-        ] = uploaded_file.name
-
-
-# -------------------------------------------------------
-# No Workbook in Current Session
+# Load / Create Monthly Workbook
 # -------------------------------------------------------
 
 if st.session_state["temp_file"] is None:
 
-    # Try restoring last workbook from Supabase
-    restored_file = download_workbook(
-        st.session_state["selected_year"],
+    selected_year_for_workbook = (
+        st.session_state["selected_year"]
+    )
+
+    selected_month_for_workbook = (
         st.session_state["selected_month"]
     )
+
+
+    # ---------------------------------------------------
+    # Try restoring workbook from Supabase
+    # ---------------------------------------------------
+
+    restored_file = download_workbook(
+        selected_year_for_workbook,
+        selected_month_for_workbook
+    )
+
 
     if restored_file is not None:
 
@@ -171,19 +146,133 @@ if st.session_state["temp_file"] is None:
 
         st.session_state[
             "uploaded_filename"
-        ] = "Restored Workbook"
-
-        st.success(
-            "✅ Previous workbook restored."
+        ] = (
+            f"Tea_Collection_"
+            f"{selected_year_for_workbook}_"
+            f"{selected_month_for_workbook}.xlsx"
         )
+
+
+    # ---------------------------------------------------
+    # Workbook does NOT exist
+    # ---------------------------------------------------
 
     else:
 
         st.info(
-            "Please upload an Excel workbook to begin."
+            f"No worksheet exists for "
+            f"{selected_month_for_workbook} "
+            f"{selected_year_for_workbook}."
         )
 
+
+        if st.button(
+            "➕ Add New Worksheet",
+            type="primary",
+            use_container_width=True,
+            key="add_new_worksheet"
+        ):
+
+            try:
+
+                # ---------------------------------------
+                # Check template
+                # ---------------------------------------
+
+                if not os.path.exists(
+                    TEMPLATE_PATH
+                ):
+
+                    st.error(
+                        "New Worksheet template "
+                        "could not be found."
+                    )
+
+                    st.stop()
+
+
+                # ---------------------------------------
+                # Create temporary workbook
+                # ---------------------------------------
+
+                new_workbook = (
+                    tempfile.NamedTemporaryFile(
+                        delete=False,
+                        suffix=".xlsx"
+                    )
+                )
+
+                new_workbook.close()
+
+
+                # ---------------------------------------
+                # Copy template
+                # ---------------------------------------
+
+                shutil.copyfile(
+                    TEMPLATE_PATH,
+                    new_workbook.name
+                )
+
+
+                # ---------------------------------------
+                # Upload as monthly workbook
+                # ---------------------------------------
+
+                sync_workbook(
+                    new_workbook.name,
+                    selected_year_for_workbook,
+                    selected_month_for_workbook
+                )
+
+
+                # ---------------------------------------
+                # Use workbook immediately
+                # ---------------------------------------
+
+                st.session_state[
+                    "temp_file"
+                ] = new_workbook.name
+
+                st.session_state[
+                    "uploaded_filename"
+                ] = (
+                    f"Tea_Collection_"
+                    f"{selected_year_for_workbook}_"
+                    f"{selected_month_for_workbook}.xlsx"
+                )
+
+
+                st.session_state[
+                    "new_worksheet_success"
+                ] = True
+
+                st.rerun()
+
+
+            except Exception as e:
+
+                st.error(
+                    f"Unable to create worksheet: {e}"
+                )
+
+
+        # Do not execute Excel code until
+        # a workbook exists
         st.stop()
+
+# -------------------------------------------------------
+# New Worksheet Success
+# -------------------------------------------------------
+
+if st.session_state.pop(
+    "new_worksheet_success",
+    False
+):
+
+    st.success(
+        "✅ New worksheet created successfully."
+    )
 
 # -------------------------------------------------------
 # Load workbook
@@ -685,6 +774,25 @@ if last_entry:
     last_month = last_entry[3]
     last_day = last_entry[4]
     last_entry_time = last_entry[5]
+
+    # ---------------------------------------------------
+    # Convert database timestamp to Sri Lanka time
+    # ---------------------------------------------------
+
+    if last_entry_time is not None:
+
+        # If PostgreSQL returned a timestamp without timezone,
+        # treat the stored value as UTC
+        if last_entry_time.tzinfo is None:
+
+            last_entry_time = last_entry_time.replace(
+                tzinfo=ZoneInfo("UTC")
+            )
+
+        # Convert UTC/database timezone to Sri Lanka time
+        last_entry_time = last_entry_time.astimezone(
+            ZoneInfo("Asia/Colombo")
+        )
 
 else:
 
@@ -1336,124 +1444,6 @@ with st.sidebar:
 
             use_container_width=True
         )
-
-    st.markdown("---")
-
-    # ---------------------------------------------------
-    # Save Workbook
-    # ---------------------------------------------------
-    
-    if st.button(
-            "💾 Save Workbook",
-            use_container_width=True
-        ):
-    
-            temp_save = tempfile.NamedTemporaryFile(
-                delete=False,
-                suffix=".xlsx"
-            )
-    
-            temp_save.close()
-    
-            handler.save(
-                temp_save.name
-            )
-    
-            saved_item = {
-                "name": (
-                    f"Tea_Collection_"
-                    f"{selected_year}_"
-                    f"{selected_month}_"
-                    f"{len(st.session_state['saved_workbooks']) + 1}"
-                    ".xlsx"
-                ),
-    
-                "path": temp_save.name,
-    
-                "time": datetime.now(
-                    ZoneInfo("Asia/Colombo")
-                )
-            }
-    
-            st.session_state[
-                "saved_workbooks"
-            ].insert(
-                0,
-                saved_item
-            )
-    
-            # Keep only last 10 files
-            st.session_state[
-                "saved_workbooks"
-            ] = (
-                st.session_state[
-                    "saved_workbooks"
-                ][:10]
-            )
-    
-            st.success(
-                "✅ Workbook Saved Successfully"
-            )
-
-    # ---------------------------------------------------
-    # Saved Excel Sheets
-    # ---------------------------------------------------
-
-    if st.button(
-        "📂 Saved Excel Sheets",
-        use_container_width=True
-    ):
-
-        st.session_state["show_saved_panel"] = (
-            not st.session_state["show_saved_panel"]
-        )
-
-
-    if st.session_state["show_saved_panel"]:
-
-        st.subheader("Last 10 Saved Files")
-
-        saved_files = (
-            st.session_state["saved_workbooks"]
-        )
-
-        if not saved_files:
-
-            st.info(
-                "No saved files available."
-            )
-
-        else:
-
-            selected_file = st.selectbox(
-                "Select Workbook",
-                saved_files,
-
-                format_func=lambda item:
-                    item["time"].strftime(
-                        "%d-%m-%Y %I:%M:%S %p"
-                    )
-            )
-
-
-            if st.button(
-                "📖 Open Selected",
-                use_container_width=True
-            ):
-
-                st.session_state[
-                    "temp_file"
-                ] = selected_file["path"]
-
-                st.session_state[
-                    "uploaded_filename"
-                ] = selected_file["name"]
-
-                st.success(
-                    f"Opened {selected_file['name']}"
-                )
-
-                st.rerun()
 
     st.markdown("---")
 
