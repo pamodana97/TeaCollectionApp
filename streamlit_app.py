@@ -5,6 +5,7 @@ import pandas as pd
 import time
 import os
 import shutil
+import streamlit.components.v1 as components
 
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -296,12 +297,14 @@ code_to_name = dict(
 )
 
 # Customer Name → Customer Code
-name_to_code = dict(
-    zip(
+name_to_code = {
+    str(name).strip(): code
+    for name, code in zip(
         customer_df["Customer Name"],
         customer_df["Customer Code"]
     )
-)
+    if pd.notna(name)
+}
 
 # -------------------------------------------------------
 # Entry Form
@@ -536,9 +539,11 @@ customer_codes = (
     customer_df["Customer Code"].tolist()
 )
 
-customer_names = (
-    customer_df["Customer Name"].tolist()
-)
+customer_names = [
+    str(name).strip()
+    for name in customer_df["Customer Name"].tolist()
+    if pd.notna(name)
+]
 
 
 # -------------------------------------------------------
@@ -630,6 +635,77 @@ with col2:
         key="customer_name_select",
         on_change=customer_name_changed
     )
+
+# -------------------------------------------------------
+# Customer Name - Select Existing Search Text on Click
+# -------------------------------------------------------
+
+components.html(
+    """
+    <script>
+    const parentDocument = window.parent.document;
+
+    function setupCustomerNameSelectAll() {
+
+        const labels = parentDocument.querySelectorAll("label");
+
+        labels.forEach((label) => {
+
+            if (label.innerText.trim() === "Customer Name") {
+
+                const container = label.parentElement;
+
+                if (!container) {
+                    return;
+                }
+
+                const input = container.querySelector("input");
+
+                if (!input) {
+                    return;
+                }
+
+                if (
+                    input.dataset.customerNameSelectAll === "true"
+                ) {
+                    return;
+                }
+
+                input.dataset.customerNameSelectAll = "true";
+
+                input.addEventListener(
+                    "focus",
+                    function () {
+
+                        setTimeout(() => {
+
+                            this.select();
+
+                        }, 50);
+
+                    }
+                );
+            }
+        });
+    }
+
+    setupCustomerNameSelectAll();
+
+    const observer = new MutationObserver(
+        setupCustomerNameSelectAll
+    );
+
+    observer.observe(
+        parentDocument.body,
+        {
+            childList: true,
+            subtree: true
+        }
+    );
+    </script>
+    """,
+    height=0
+)
 
 # -------------------------------------------------------
 # Amount State
