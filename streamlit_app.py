@@ -588,6 +588,8 @@ def customer_code_changed():
             "customer_name_select"
         ] = corresponding_name
 
+    # Move to Amount after selection
+    st.session_state["focus_amount"] = True
 
 # -------------------------------------------------------
 # Customer Name Changed
@@ -609,6 +611,8 @@ def customer_name_changed():
             "customer_code_select"
         ] = corresponding_code
 
+    # Move to Amount after selection
+    st.session_state["focus_amount"] = True
 
 # -------------------------------------------------------
 # Customer Row
@@ -637,71 +641,77 @@ with col2:
     )
 
 # -------------------------------------------------------
-# Customer Name - Select Existing Search Text on Click
+# Customer Name - Select Entire Text on Click
 # -------------------------------------------------------
 
 components.html(
     """
     <script>
-    const parentDocument = window.parent.document;
+    const doc = window.parent.document;
 
     function setupCustomerNameSelectAll() {
 
-        const labels = parentDocument.querySelectorAll("label");
+        const labels = doc.querySelectorAll("label");
 
         labels.forEach((label) => {
 
-            if (label.innerText.trim() === "Customer Name") {
-
-                const container = label.parentElement;
-
-                if (!container) {
-                    return;
-                }
-
-                const input = container.querySelector("input");
-
-                if (!input) {
-                    return;
-                }
-
-                if (
-                    input.dataset.customerNameSelectAll === "true"
-                ) {
-                    return;
-                }
-
-                input.dataset.customerNameSelectAll = "true";
-
-                input.addEventListener(
-                    "focus",
-                    function () {
-
-                        setTimeout(() => {
-
-                            this.select();
-
-                        }, 50);
-
-                    }
-                );
+            if (
+                label.innerText.trim() !== "Customer Name"
+            ) {
+                return;
             }
+
+            const container = label.parentElement;
+
+            if (!container) {
+                return;
+            }
+
+            const input = container.querySelector("input");
+
+            if (!input) {
+                return;
+            }
+
+            if (
+                input.dataset.customerNameSelectAll === "true"
+            ) {
+                return;
+            }
+
+            input.dataset.customerNameSelectAll = "true";
+
+
+            input.addEventListener(
+                "click",
+                function () {
+
+                    // Select the current value immediately
+                    // when the user clicks the field.
+                    this.select();
+
+                }
+            );
+
         });
     }
 
+
     setupCustomerNameSelectAll();
+
 
     const observer = new MutationObserver(
         setupCustomerNameSelectAll
     );
 
     observer.observe(
-        parentDocument.body,
+        doc.body,
         {
             childList: true,
             subtree: true
         }
     );
+
     </script>
     """,
     height=0
@@ -750,6 +760,59 @@ st.text_input(
     placeholder="Enter amount"
 )
 
+# -------------------------------------------------------
+# Auto Focus Amount After Customer Selection
+# -------------------------------------------------------
+
+if st.session_state.pop(
+    "focus_amount",
+    False
+):
+
+    components.html(
+        """
+        <script>
+        const doc = window.parent.document;
+
+        function focusAmount() {
+
+            const labels = doc.querySelectorAll("label");
+
+            for (const label of labels) {
+
+                if (
+                    label.innerText.trim() === "Amount (Kg)"
+                ) {
+
+                    const container = label.parentElement;
+
+                    if (!container) {
+                        return;
+                    }
+
+                    const input = container.querySelector(
+                        "input"
+                    );
+
+                    if (!input) {
+                        return;
+                    }
+
+                    input.focus();
+
+                    return;
+                }
+            }
+        }
+
+        setTimeout(
+            focusAmount,
+            100
+        );
+        </script>
+        """,
+        height=0
+    )
 
 # -------------------------------------------------------
 # Convert Amount
