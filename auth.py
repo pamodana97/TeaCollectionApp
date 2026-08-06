@@ -214,25 +214,38 @@ def login():
         "Login"
     )
 
-    username = st.text_input(
-        "Username",
-        placeholder="Enter username",
-        key="login_username"
-    )
+    # ---------------------------------------------------
+    # Login Form
+    # ---------------------------------------------------
 
-    password = st.text_input(
-        "Password",
-        type="password",
-        placeholder="Enter password",
-        key="login_password"
-    )
-
-
-    if st.button(
-        "Login",
-        use_container_width=True,
-        key="login_button"
+    with st.form(
+        "login_form"
     ):
+
+        username = st.text_input(
+            "Username",
+            placeholder="Enter username",
+            key="login_username"
+        )
+
+        password = st.text_input(
+            "Password",
+            type="password",
+            placeholder="Enter password",
+            key="login_password"
+        )
+
+        login_clicked = st.form_submit_button(
+            "Login",
+            use_container_width=True
+        )
+
+
+    # ---------------------------------------------------
+    # Login Verification
+    # ---------------------------------------------------
+
+    if login_clicked:
 
         if (
             username == VALID_USERNAME
@@ -258,5 +271,5 @@ def login():
             st.error(
                 "Invalid username or password."
             )
-
+            
     return False

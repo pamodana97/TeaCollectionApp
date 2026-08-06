@@ -748,6 +748,10 @@ def amount_entered():
         "submit_from_enter"
     ] = True
 
+    st.session_state[
+        "blur_amount"
+    ] = True
+
 
 # -------------------------------------------------------
 # Amount
@@ -759,6 +763,61 @@ st.text_input(
     on_change=amount_entered,
     placeholder="Enter amount"
 )
+
+# -------------------------------------------------------
+# Remove Focus From Amount After Enter
+# -------------------------------------------------------
+
+if st.session_state.pop(
+    "blur_amount",
+    False
+):
+
+    components.html(
+        """
+        <script>
+        const doc = window.parent.document;
+
+        function blurAmount() {
+
+            const labels = doc.querySelectorAll("label");
+
+            for (const label of labels) {
+
+                if (
+                    label.innerText.trim() === "Amount (Kg)"
+                ) {
+
+                    const container = label.parentElement;
+
+                    if (!container) {
+                        return;
+                    }
+
+                    const input = container.querySelector(
+                        "input"
+                    );
+
+                    if (!input) {
+                        return;
+                    }
+
+                    input.blur();
+
+                    return;
+                }
+            }
+        }
+
+        setTimeout(
+            blurAmount,
+            50
+        );
+
+        </script>
+        """,
+        height=0
+    )
 
 # -------------------------------------------------------
 # Auto Focus Amount After Customer Selection
@@ -847,6 +906,227 @@ submit_entry = (
 )
 
 # -------------------------------------------------------
+# Adjust Existing Amount
+# -------------------------------------------------------
+
+with st.expander(
+    "✏️ Adjust Existing Amount",
+    expanded=False
+):
+
+    # Get current amount for selected customer/day
+    try:
+
+        adjustment_row = handler.find_customer_row(
+            customer_code
+        )
+
+        adjustment_column = handler.find_date_column(
+            selected_day
+        )
+
+        current_value = sheet.cell(
+            row=adjustment_row,
+            column=adjustment_column
+        ).value
+
+        try:
+            current_amount = float(current_value)
+
+        except (TypeError, ValueError):
+            current_amount = 0.0
+
+    except Exception:
+
+        current_amount = 0.0
+
+
+    st.markdown(
+        f"**Current Amount:** "
+        f"{current_amount:,.2f} Kg"
+    )
+
+
+    adjustment_type = st.radio(
+        "Adjustment",
+        [
+            "➕ Add",
+            "➖ Reduce"
+        ],
+        horizontal=True,
+        key="adjustment_type"
+    )
+
+
+    adjustment_input = st.number_input(
+        "Adjustment Amount (Kg)",
+        min_value=0.0,
+        step=0.5,
+        value=0.0,
+        key="adjustment_amount"
+    )
+
+
+    # Calculate preview
+    if adjustment_type == "➕ Add":
+
+        adjusted_amount = (
+            current_amount
+            + adjustment_input
+        )
+
+    else:
+
+        adjusted_amount = (
+            current_amount
+            - adjustment_input
+        )
+
+
+    # Preview result
+    if adjusted_amount >= 0:
+
+        st.info(
+            f"New Amount: "
+            f"{adjusted_amount:,.2f} Kg"
+        )
+
+    else:
+
+        st.error(
+            "Adjustment would make the "
+            "collection amount negative."
+        )
+
+
+    apply_adjustment = st.button(
+        "Apply Adjustment",
+        use_container_width=True,
+        key="apply_adjustment_button"
+    )
+
+# -------------------------------------------------------
+# Apply Adjustment
+# -------------------------------------------------------
+
+if apply_adjustment:
+
+    if adjustment_input <= 0:
+
+        st.error(
+            "Please enter an adjustment amount "
+            "greater than 0."
+        )
+
+    elif adjusted_amount < 0:
+
+        st.error(
+            "Reduction cannot be greater than "
+            "the current amount."
+        )
+
+    else:
+
+        try:
+
+            old_value = current_amount
+
+
+            # -------------------------------------------------------
+            # Update Excel
+            # -------------------------------------------------------
+
+            row, column = handler.update(
+                customer_code,
+                selected_day,
+                adjusted_amount
+            )
+
+
+            # -------------------------------------------------------
+            # Update Database
+            # -------------------------------------------------------
+
+            save_collection(
+                customer_code=customer_code,
+                customer_name=customer_name,
+                year=selected_year,
+                month=selected_month,
+                day=selected_day,
+                amount=adjusted_amount
+            )
+
+
+            # -------------------------------------------------------
+            # Audit Record
+            # -------------------------------------------------------
+
+            add_audit_record(
+                customer_code=customer_code,
+                customer_name=customer_name,
+                year=selected_year,
+                month=selected_month,
+                day=selected_day,
+                old_amount=old_value,
+                new_amount=adjusted_amount,
+                excel_row=row,
+                excel_column=column
+            )
+
+
+            # -------------------------------------------------------
+            # Save Excel
+            # -------------------------------------------------------
+
+            handler.save(
+                st.session_state["temp_file"]
+            )
+
+
+            # -------------------------------------------------------
+            # Sync Workbook
+            # -------------------------------------------------------
+
+            sync_workbook(
+                st.session_state["temp_file"],
+                selected_year,
+                selected_month
+            )
+
+
+            # -------------------------------------------------------
+            # Update Highlight
+            # -------------------------------------------------------
+
+            st.session_state[
+                "updated_cells"
+            ].append(
+                {
+                    "row": row,
+                    "column": column,
+                    "year": selected_year,
+                    "month": selected_month,
+                    "day": selected_day,
+                    "amount": adjusted_amount,
+                    "time": datetime.now()
+                }
+            )
+
+
+            st.session_state[
+                "adjustment_success"
+            ] = True
+
+            st.rerun()
+
+
+        except Exception as e:
+
+            st.error(
+                f"Adjustment failed: {e}"
+            )
+
+# -------------------------------------------------------
 # Submit Success Message
 # -------------------------------------------------------
 
@@ -865,8 +1145,27 @@ if st.session_state.pop(
 
     success_placeholder.empty()
 
-st.markdown("---")
+# -------------------------------------------------------
+# Adjustment Success Message
+# -------------------------------------------------------
 
+if st.session_state.pop(
+    "adjustment_success",
+    False
+):
+
+    adjustment_success_placeholder = st.empty()
+
+    adjustment_success_placeholder.success(
+        "✅ Amount Adjusted Successfully"
+    )
+
+    time.sleep(3)
+
+    adjustment_success_placeholder.empty()
+
+
+st.markdown("---")
 
 # Find the selected Day column in DataFrame
 day_column = None
@@ -890,6 +1189,7 @@ if day_column is not None:
     )
 
     daily_total = daily_values.sum()
+
 
 # -------------------------------------------------------
 # Last Customer Entry
@@ -1046,15 +1346,44 @@ if submit_entry:
     else:
         try:
 
+            # -------------------------------------------------------
+            # Get Existing Amount
+            # -------------------------------------------------------
+
             old_value = sheet.cell(
                 row=handler.find_customer_row(customer_code),
                 column=handler.find_date_column(selected_day)
             ).value
 
+
+            # -------------------------------------------------------
+            # CASH Customer - Increment Existing Amount
+            # -------------------------------------------------------
+
+            if str(customer_name).strip().lower() == "cash":
+
+                try:
+                    existing_amount = float(old_value)
+
+                except (TypeError, ValueError):
+                    existing_amount = 0.0
+
+                final_amount = existing_amount + amount
+
+            else:
+
+                # Normal customers replace existing amount
+                final_amount = amount
+
+
+            # -------------------------------------------------------
+            # Update Excel
+            # -------------------------------------------------------
+
             row, column = handler.update(
                 customer_code,
                 selected_day,
-                amount
+                final_amount
             )
 
             # -------------------------------------------------------
@@ -1067,7 +1396,7 @@ if submit_entry:
                 year=selected_year,
                 month=selected_month,
                 day=selected_day,
-                amount=amount
+                amount=final_amount
             )
 
             # -------------------------------------------------------
@@ -1081,7 +1410,7 @@ if submit_entry:
                 month=selected_month,
                 day=selected_day,
                 old_amount=old_value,
-                new_amount=amount,
+                new_amount=final_amount,
                 excel_row=row,
                 excel_column=column
             )
