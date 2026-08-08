@@ -2,9 +2,11 @@ import streamlit as st
 import tempfile
 import calendar
 import pandas as pd
+import io
 import time
 import os
 import shutil
+import textwrap
 import streamlit.components.v1 as components
 
 from datetime import datetime
@@ -1056,6 +1058,23 @@ if apply_adjustment:
                 amount=adjusted_amount
             )
 
+            # Previous amount for audit
+            try:
+                previous_amount = float(old_value)
+            except (TypeError, ValueError):
+                previous_amount = None
+
+            # -------------------------------------------------------
+            # Determine Audit Action
+            # -------------------------------------------------------
+
+            if previous_amount is None:
+
+                audit_action = "Added"
+
+            else:
+
+                audit_action = "Updated"
 
             # -------------------------------------------------------
             # Audit Record
@@ -1067,8 +1086,13 @@ if apply_adjustment:
                 year=selected_year,
                 month=selected_month,
                 day=selected_day,
-                old_amount=old_value,
+                old_amount=previous_amount,
                 new_amount=adjusted_amount,
+                username=st.session_state.get(
+                    "username",
+                    "Unknown"
+                ),
+                action=audit_action,
                 excel_row=row,
                 excel_column=column
             )
@@ -1400,6 +1424,34 @@ if submit_entry:
             )
 
             # -------------------------------------------------------
+            # Previous amount for audit
+            # -------------------------------------------------------
+
+            try:
+
+                previous_amount = float(old_value)
+
+            except (TypeError, ValueError):
+
+                previous_amount = None
+
+            # -------------------------------------------------------
+            # Determine Audit Action
+            # -------------------------------------------------------
+
+            # -------------------------------------------------------
+            # Audit Action
+            # -------------------------------------------------------
+
+            if previous_amount is None:
+
+                audit_action = "Added"
+
+            else:
+
+                audit_action = "Updated"
+
+            # -------------------------------------------------------
             # Save Audit Record to SQLite
             # -------------------------------------------------------
 
@@ -1409,8 +1461,13 @@ if submit_entry:
                 year=selected_year,
                 month=selected_month,
                 day=selected_day,
-                old_amount=old_value,
+                old_amount=previous_amount,
                 new_amount=final_amount,
+                username=st.session_state.get(
+                    "username",
+                    "Unknown"
+                ),
+                action=audit_action,
                 excel_row=row,
                 excel_column=column
             )
@@ -1777,6 +1834,18 @@ if st.session_state.get(
                         day=remove_day
                     )
 
+                    # -------------------------------------------------------
+                    # Previous amount for audit
+                    # -------------------------------------------------------
+
+                    try:
+
+                        previous_amount = float(old_amount)
+
+                    except (TypeError, ValueError):
+
+                        previous_amount = None
+
 
                     # -------------------------------------------
                     # Add deletion to Audit
@@ -1788,8 +1857,13 @@ if st.session_state.get(
                         year=selected_year,
                         month=selected_month,
                         day=remove_day,
-                        old_amount=old_amount,
+                        old_amount=previous_amount,
                         new_amount=0,
+                        username=st.session_state.get(
+                            "username",
+                            "Unknown"
+                        ),
+                        action="Deleted",
                         excel_row=excel_row,
                         excel_column=excel_column
                     )
@@ -1936,7 +2010,7 @@ with st.sidebar:
     if st.session_state.get(
         "show_audit_panel",
         False
-    ):
+    ):    
 
         if not st.session_state.get(
             "audit_authenticated",
@@ -1975,17 +2049,32 @@ with st.sidebar:
 
         else:
 
+            # ---------------------------------------------------
+            # Lock Audit Panel
+            # ---------------------------------------------------
+
+            if st.button(
+                "🔒 Lock Audit Panel",
+                use_container_width=True,
+                key="lock_audit_button"
+            ):
+
+                st.session_state["audit_authenticated"] = False
+                st.session_state["show_audit_panel"] = False
+
+                st.rerun()
+
             st.subheader("📋 Audit History")
 
             audit_records = get_audit_records()
 
-            if not audit_records:
+            # ---------------------------------------------------
+            # Download Audit History
+            # ---------------------------------------------------
 
-                st.info(
-                    "No audit records available."
-                )
+            if audit_records:
 
-            else:
+                audit_download_data = []
 
                 for record in audit_records:
 
@@ -1998,6 +2087,8 @@ with st.sidebar:
                         day,
                         old_amount,
                         new_amount,
+                        username,
+                        action,
                         updated_at
                     ) = record
 
@@ -2005,48 +2096,685 @@ with st.sidebar:
                         updated_at
                     )
 
-                    # Format old amount
-                    if old_amount is None:
-                        old_amount_display = "-"
+                    audit_download_data.append({
+                        "Audit ID": record_id,
+                        "Customer Code": customer_code,
+                        "Customer Name": customer_name,
+                        "Year": year,
+                        "Month": month,
+                        "Day": day,
+                        "Collection Date": (
+                            f"{int(day):02d} "
+                            f"{month} "
+                            f"{year}"
+                        ),
+                        "Action": action,
+                        "Old Amount (Kg)": old_amount,
+                        "New Amount (Kg)": new_amount,
+                        "User": username,
+                        "Updated": updated_time.strftime(
+                            "%d-%m-%Y %I:%M:%S %p"
+                        )
+                    })
+
+
+                audit_df = pd.DataFrame(
+                    audit_download_data
+                )
+
+                # ---------------------------------------------------
+                # Sort records from oldest to newest
+                # ---------------------------------------------------
+
+                audit_df = audit_df.sort_values(
+                    by="Audit ID",
+                    ascending=True
+                ).reset_index(drop=True)
+
+
+                # ---------------------------------------------------
+                # Create sequential Audit ID
+                # ---------------------------------------------------
+
+                audit_df["Audit ID"] = range(
+                    1,
+                    len(audit_df) + 1
+                )
+
+                # ---------------------------------------------------
+                # Create Professional Excel Report
+                # ---------------------------------------------------
+
+                output = io.BytesIO()
+
+                with pd.ExcelWriter(
+                    output,
+                    engine="openpyxl"
+                ) as writer:
+
+                    audit_df.to_excel(
+                        writer,
+                        index=False,
+                        sheet_name="Audit History"
+                    )
+
+                    workbook = writer.book
+
+                    worksheet = writer.sheets[
+                        "Audit History"
+                    ]
+
+
+                    # ------------------------------------------------
+                    # Header Formatting
+                    # ------------------------------------------------
+
+                    from openpyxl.styles import (
+                        Font,
+                        PatternFill,
+                        Alignment,
+                        Border,
+                        Side
+                    )
+
+                    header_fill = PatternFill(
+                        fill_type="solid",
+                        fgColor="1F2937"
+                    )
+
+                    header_font = Font(
+                        color="FFFFFF",
+                        bold=True
+                    )
+
+                    header_alignment = Alignment(
+                        horizontal="center",
+                        vertical="center"
+                    )
+
+
+                    for cell in worksheet[1]:
+
+                        cell.fill = header_fill
+                        cell.font = header_font
+                        cell.alignment = header_alignment
+
+
+                    # ------------------------------------------------
+                    # Freeze Header
+                    # ------------------------------------------------
+
+                    worksheet.freeze_panes = "A2"
+
+
+                    # ------------------------------------------------
+                    # Enable Filter
+                    # ------------------------------------------------
+
+                    worksheet.auto_filter.ref = (
+                        worksheet.dimensions
+                    )
+
+
+                    # ------------------------------------------------
+                    # Column Widths
+                    # ------------------------------------------------
+
+                    column_widths = {
+
+                        "A": 10,   # Audit ID
+                        "B": 18,   # Customer Code
+                        "C": 28,   # Customer Name
+                        "D": 10,   # Year
+                        "E": 15,   # Month
+                        "F": 10,   # Day
+                        "G": 22,   # Collection Date
+                        "H": 14,   # Action
+                        "I": 18,   # Old Amount
+                        "J": 18,   # New Amount
+                        "K": 18,   # User
+                        "L": 25    # Updated
+                    }
+
+
+                    for column, width in column_widths.items():
+
+                        worksheet.column_dimensions[
+                            column
+                        ].width = width
+
+
+                    # ------------------------------------------------
+                    # Cell Alignment
+                    # ------------------------------------------------
+
+                    for row in worksheet.iter_rows(
+                        min_row=2
+                    ):
+
+                        for cell in row:
+
+                            cell.alignment = Alignment(
+                                vertical="center"
+                            )
+
+
+                    # ------------------------------------------------
+                    # Action Formatting
+                    # ------------------------------------------------
+
+                    for row in range(
+                        2,
+                        worksheet.max_row + 1
+                    ):
+
+                        action_cell = worksheet.cell(
+                            row=row,
+                            column=8
+                        )
+
+                        action_value = (
+                            action_cell.value
+                        )
+
+
+                        if action_value == "Added":
+
+                            action_cell.fill = PatternFill(
+                                fill_type="solid",
+                                fgColor="DCFCE7"
+                            )
+
+                            action_cell.font = Font(
+                                color="166534",
+                                bold=True
+                            )
+
+
+                        elif action_value == "Updated":
+
+                            action_cell.fill = PatternFill(
+                                fill_type="solid",
+                                fgColor="DBEAFE"
+                            )
+
+                            action_cell.font = Font(
+                                color="1D4ED8",
+                                bold=True
+                            )
+
+
+                        elif action_value == "Deleted":
+
+                            action_cell.fill = PatternFill(
+                                fill_type="solid",
+                                fgColor="FEE2E2"
+                            )
+
+                            action_cell.font = Font(
+                                color="B91C1C",
+                                bold=True
+                            )
+
+
+                    # ------------------------------------------------
+                    # Amount Formatting
+                    # ------------------------------------------------
+
+                    for row in range(
+                        2,
+                        worksheet.max_row + 1
+                    ):
+
+                        worksheet.cell(
+                            row=row,
+                            column=9
+                        ).number_format = '0.00'
+
+                        worksheet.cell(
+                            row=row,
+                            column=10
+                        ).number_format = '0.00'
+
+
+                    # ------------------------------------------------
+                    # Add Excel Table
+                    # ------------------------------------------------
+
+                    from openpyxl.worksheet.table import (
+                        Table,
+                        TableStyleInfo
+                    )
+
+                    table_reference = (
+                        f"A1:L{worksheet.max_row}"
+                    )
+
+                    audit_table = Table(
+                        displayName="AuditHistoryTable",
+                        ref=table_reference
+                    )
+
+                    table_style = TableStyleInfo(
+                        name="TableStyleMedium2",
+                        showFirstColumn=False,
+                        showLastColumn=False,
+                        showRowStripes=True,
+                        showColumnStripes=False
+                    )
+
+                    audit_table.tableStyleInfo = (
+                        table_style
+                    )
+
+                    worksheet.add_table(
+                        audit_table
+                    )
+
+
+                    # ------------------------------------------------
+                    # Row Height
+                    # ------------------------------------------------
+
+                    worksheet.row_dimensions[1].height = 25
+
+
+                output.seek(0)
+
+
+                # ---------------------------------------------------
+                # Download Button
+                # ---------------------------------------------------
+
+                st.download_button(
+
+                    label="📥 Download Audit History",
+
+                    data=output,
+
+                    file_name=(
+                        "Tea_Collection_Audit_History.xlsx"
+                    ),
+
+                    mime=(
+                        "application/"
+                        "vnd.openxmlformats-officedocument."
+                        "spreadsheetml.sheet"
+                    ),
+
+                    use_container_width=True,
+
+                    key="download_audit_history"
+                )
+
+                st.markdown("---")
+
+            if not audit_records:
+
+                st.info(
+                    "No audit records available."
+                )
+
+            else:
+
+                for record in audit_records[:5]:
+
+                    (
+                        record_id,
+                        customer_code,
+                        customer_name,
+                        year,
+                        month,
+                        day,
+                        old_amount,
+                        new_amount,
+                        username,
+                        action,
+                        updated_at
+                    ) = record
+
+                    # ---------------------------------------------------
+                    # Format Date / Time
+                    # ---------------------------------------------------
+
+                    updated_time = datetime.fromisoformat(
+                        updated_at
+                    )
+
+                    formatted_date = (
+                        f"{int(day):02d} {month} {year}"
+                    )
+
+                    formatted_time = updated_time.strftime(
+                        "%d %b %Y • %I:%M:%S %p"
+                    )
+
+                    # ---------------------------------------------------
+                    # Action Style
+                    # ---------------------------------------------------
+
+                    if action == "Added":
+
+                        badge_background = "#DCFCE7"
+                        badge_text = "#166534"
+                        badge_icon = "🟢"
+
+                    elif action == "Updated":
+
+                        badge_background = "#DBEAFE"
+                        badge_text = "#1D4ED8"
+                        badge_icon = "🔵"
+
                     else:
-                        old_amount_display = f"{old_amount:g} Kg"
 
-                    # Format new amount
-                    new_amount_display = f"{new_amount:g} Kg"
+                        badge_background = "#FEE2E2"
+                        badge_text = "#B91C1C"
+                        badge_icon = "🔴"
 
-                    st.markdown(
+                    # ---------------------------------------------------
+                    # Amount Section
+                    # ---------------------------------------------------
+
+                    if action == "Added":
+
+                        amount_html = f"""
+                        <div style="
+                            padding:12px 0;
+                            border-top:1px solid #374151;
+                        ">
+                            <div style="
+                                font-size:12px;
+                                color:#6B7280;
+                                margin-bottom:3px;
+                            ">
+                                🍃 New Amount
+                            </div>
+
+                            <div style="
+                                font-size:18px;
+                                font-weight:600;
+                            ">
+                                {new_amount:g} Kg
+                            </div>
+                        </div>
+                        """
+
+                    elif action == "Updated":
+
+                        old_amount_display = (
+                            f"{old_amount:g} Kg"
+                            if old_amount is not None
+                            else "-"
+                        )
+
+                        new_amount_display = (
+                            f"{new_amount:g} Kg"
+                            if new_amount is not None
+                            else "-"
+                        )
+
+                        amount_html = f"""
+                        <div style="
+                            display:grid;
+                            grid-template-columns:1fr 1fr;
+                            gap:20px;
+                            padding:12px 0;
+                            border-top:1px solid #374151;
+                        ">
+
+                            <div>
+
+                                <div style="
+                                    font-size:12px;
+                                    color:#6B7280;
+                                    margin-bottom:3px;
+                                ">
+                                    🍃 Old Amount
+                                </div>
+
+                                <div style="
+                                    font-size:18px;
+                                    font-weight:600;
+                                    color:#F9FAFB;
+                                ">
+                                    {old_amount_display}
+                                </div>
+
+                            </div>
+
+
+                            <div>
+
+                                <div style="
+                                    font-size:12px;
+                                    color:#6B7280;
+                                    margin-bottom:3px;
+                                ">
+                                    🍃 New Amount
+                                </div>
+
+                                <div style="
+                                    font-size:18px;
+                                    font-weight:600;
+                                    color:#F9FAFB;
+                                ">
+                                    {new_amount_display}
+                                </div>
+
+                            </div>
+
+                        </div>
+                        """
+                    else:
+
+                        removed_amount = (
+                            old_amount
+                            if old_amount is not None
+                            else 0
+                        )
+
+                        amount_html = f"""
+                        <div style="
+                            padding:12px 0;
+                            border-top:1px solid #374151;
+                        ">
+                            <div style="
+                                font-size:12px;
+                                color:#6B7280;
+                                margin-bottom:3px;
+                            ">
+                                🍃 Removed Amount
+                            </div>
+
+                            <div style="
+                                font-size:18px;
+                                font-weight:600;
+                                color:#F9FAFB;
+                            ">
+                                {removed_amount:g} Kg
+                            </div>
+                        </div>
+                        """
+
+                    # ---------------------------------------------------
+                    # Audit Card
+                    # ---------------------------------------------------
+
+                    audit_card_html = textwrap.dedent(
                         f"""
-                        **Customer:**  
-                        {customer_code} - {customer_name}
+                        <div style="
+                            border:1px solid #374151;
+                            border-radius:12px;
+                            padding:16px;
+                            margin-bottom:14px;
+                            background:#1F2937;
+                            box-shadow:0 2px 6px rgba(0,0,0,0.25);
+                            color:#F9FAFB;
+                        ">
 
-                        **Collection Date:**  
-                        {year} - {month} - {day}
+                            <!-- Header -->
 
-                        **Old Amount:**  
-                        {old_amount_display}
+                            <div style="
+                                display:flex;
+                                justify-content:space-between;
+                                align-items:center;
+                                margin-bottom:14px;
+                            ">
 
-                        **New Amount:**  
-                        {new_amount_display}
+                                <div style="
+                                    font-size:12px;
+                                    font-weight:700;
+                                    color:#6B7280;
+                                ">
+                                    AUDIT #{record_id}
+                                </div>
 
-                        **Updated:**  
-                        {updated_time.strftime('%d-%m-%Y %I:%M:%S %p')}
+                                <div style="
+                                    display:inline-block;
+                                    padding:5px 10px;
+                                    border-radius:20px;
+                                    background:{badge_background};
+                                    color:{badge_text};
+                                    font-size:12px;
+                                    font-weight:700;
+                                ">
+                                    {badge_icon} {action.upper()}
+                                </div>
+
+                            </div>
+
+                            <!-- Customer Code -->
+
+                            <div style="
+                                margin-bottom:10px;
+                            ">
+
+                                <div style="
+                                    font-size:12px;
+                                    color:#6B7280;
+                                    margin-bottom:3px;
+                                ">
+                                    👤 Customer Code
+                                </div>
+
+                                <div style="
+                                    font-size:16px;
+                                    font-weight:600;
+                                    color:#F9FAFB;
+                                ">
+                                    {customer_code}
+                                </div>
+
+                            </div>
+
+                            <!-- Customer Name -->
+
+                            <div style="
+                                margin-bottom:10px;
+                            ">
+
+                                <div style="
+                                    font-size:12px;
+                                    color:#6B7280;
+                                    margin-bottom:3px;
+                                ">
+                                    👤 Customer Name
+                                </div>
+
+                                <div style="
+                                    font-size:16px;
+                                    font-weight:600;
+                                    color:#F9FAFB;
+                                ">
+                                    {customer_name}
+                                </div>
+
+                            </div>
+
+                            <!-- Collection Date -->
+
+                            <div style="
+                                margin-bottom:4px;
+                            ">
+
+                                <div style="
+                                    font-size:12px;
+                                    color:#6B7280;
+                                    margin-bottom:3px;
+                                ">
+                                    📅 Collection Date
+                                </div>
+
+                                <div style="
+                                    font-size:14px;
+                                    font-weight:500;
+                                    color:#F9FAFB;
+                                ">
+                                    {formatted_date}
+                                </div>
+
+                            </div>
+
+                            <!-- Amount -->
+
+                            {amount_html}
+
+                            <!-- Footer -->
+
+                            <div style="
+                                display:grid;
+                                grid-template-columns:1fr 1fr;
+                                gap:20px;
+                                border-top:1px solid #374151;
+                                padding-top:12px;
+                                margin-top:4px;
+                            ">
+
+                                <div>
+
+                                    <div style="
+                                        font-size:12px;
+                                        color:#6B7280;
+                                        margin-bottom:3px;
+                                    ">
+                                        👤 User
+                                    </div>
+
+                                    <div style="
+                                        font-size:14px;
+                                        font-weight:600;
+                                        color:#F9FAFB;
+                                    ">
+                                        {username}
+                                    </div>
+
+                                </div>
+
+                                <div>
+
+                                    <div style="
+                                        font-size:12px;
+                                        color:#6B7280;
+                                        margin-bottom:3px;
+                                    ">
+                                        🕒 Updated
+                                    </div>
+
+                                    <div style="
+                                        font-size:14px;
+                                        font-weight:600;
+                                        color:#F9FAFB;
+                                    ">
+                                        {formatted_time}
+                                    </div>
+
+                                </div>
+
+                            </div>
+
+                        </div>
                         """
                     )
 
-                    st.markdown("---")
-
-        if st.button(
-                "🔒 Lock Audit Panel",
-                use_container_width=True,
-                key="lock_audit_button"
-            ):
-
-                st.session_state[
-                    "audit_authenticated"
-                ] = False
-
-                st.session_state[
-                    "show_audit_panel"
-                ] = False
-
-                st.rerun()            
+                    st.html(audit_card_html)
+                            

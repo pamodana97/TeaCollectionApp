@@ -2,13 +2,8 @@ import sqlite3
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-
 DATABASE_NAME = "audit.db"
 
-
-# -------------------------------------------------------
-# Create Audit Database
-# -------------------------------------------------------
 
 def initialize_audit_db():
 
@@ -18,34 +13,35 @@ def initialize_audit_db():
     cursor.execute(
         """
         CREATE TABLE IF NOT EXISTS audit_log (
-
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-
             customer_code TEXT NOT NULL,
             customer_name TEXT,
-
             year INTEGER NOT NULL,
             month TEXT NOT NULL,
             day INTEGER NOT NULL,
-
             old_amount REAL,
             new_amount REAL NOT NULL,
-
             excel_row INTEGER,
             excel_column INTEGER,
-
+            username TEXT,
+            action TEXT,
             updated_at TEXT NOT NULL
         )
         """
     )
 
+    # Upgrade existing audit databases without deleting existing records.
+    for column_name, column_type in (("username", "TEXT"), ("action", "TEXT")):
+        try:
+            cursor.execute(
+                f"ALTER TABLE audit_log ADD COLUMN {column_name} {column_type}"
+            )
+        except sqlite3.OperationalError:
+            pass
+
     connection.commit()
     connection.close()
 
-
-# -------------------------------------------------------
-# Add Audit Record
-# -------------------------------------------------------
 
 def add_audit_record(
     customer_code,
@@ -56,31 +52,26 @@ def add_audit_record(
     old_amount,
     new_amount,
     excel_row,
-    excel_column
+    excel_column,
+    username,
+    action
 ):
 
     connection = sqlite3.connect(DATABASE_NAME)
     cursor = connection.cursor()
 
-    current_time = datetime.now(
-        ZoneInfo("Asia/Colombo")
-    )
+    current_time = datetime.now(ZoneInfo("Asia/Colombo"))
 
     cursor.execute(
         """
         INSERT INTO audit_log (
-            customer_code,
-            customer_name,
-            year,
-            month,
-            day,
-            old_amount,
-            new_amount,
-            excel_row,
-            excel_column,
-            updated_at
+            customer_code, customer_name,
+            year, month, day,
+            old_amount, new_amount,
+            excel_row, excel_column,
+            username, action, updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             str(customer_code),
@@ -88,13 +79,12 @@ def add_audit_record(
             int(year),
             str(month),
             int(day),
-
             old_amount,
             float(new_amount),
-
             int(excel_row),
             int(excel_column),
-
+            str(username),
+            str(action),
             current_time.isoformat()
         )
     )
@@ -102,10 +92,6 @@ def add_audit_record(
     connection.commit()
     connection.close()
 
-
-# -------------------------------------------------------
-# Get Audit Records
-# -------------------------------------------------------
 
 def get_audit_records():
 
@@ -123,6 +109,15 @@ def get_audit_records():
             day,
             old_amount,
             new_amount,
+            COALESCE(username, 'Unknown') AS username,
+            COALESCE(
+                action,
+                CASE
+                    WHEN old_amount IS NULL THEN 'Added'
+                    WHEN new_amount = 0 THEN 'Deleted'
+                    ELSE 'Updated'
+                END
+            ) AS action,
             updated_at
         FROM audit_log
         ORDER BY id DESC
@@ -130,7 +125,5 @@ def get_audit_records():
     )
 
     records = cursor.fetchall()
-
     connection.close()
-
     return records
