@@ -48,8 +48,12 @@ from workbook_storage import (
 from audit_db import (
     initialize_audit_db,
     add_audit_record,
-    get_audit_records
+    get_audit_records,
+    add_customer_audit_record,
+    get_customer_audit_records
 )
+
+CUSTOMER_MANAGEMENT_PASSWORD = "customer123"
 
 DATE_EDIT_PASSWORD = "date123"
 # -------------------------------------------------------
@@ -287,7 +291,9 @@ workbook, sheet = handler.load(
 
 df = handler.dataframe()
 
-customer_df, customer_dict = handler.get_customer_data()
+customer_df, customer_dict = (
+    handler.get_active_customers()
+)
 
 
 # Customer Code → Customer Name
@@ -1986,6 +1992,428 @@ with st.sidebar:
 
             use_container_width=True
         )
+
+    st.markdown("---")
+
+    # ---------------------------------------------------
+    # Customer Management Authentication
+    # ---------------------------------------------------
+
+    if "customer_management_authenticated" not in st.session_state:
+
+        st.session_state[
+            "customer_management_authenticated"
+        ] = False
+
+    # ---------------------------------------------------
+    # Customer Management
+    # ---------------------------------------------------
+
+    if st.button(
+        "👤 Customer Management",
+        use_container_width=True,
+        key="customer_management_button"
+    ):
+
+        st.session_state[
+            "show_customer_management"
+        ] = not st.session_state.get(
+            "show_customer_management",
+            False
+        )
+
+
+    if st.session_state.get(
+        "show_customer_management",
+        False
+    ):
+
+        st.markdown("---")
+
+        # ===================================================
+        # LOCKED STATE
+        # ===================================================
+
+        if not st.session_state.get(
+            "customer_management_authenticated",
+            False
+        ):
+
+            st.subheader(
+                "🔐 Customer Management Access"
+            )
+
+            customer_management_password = (
+                st.text_input(
+                    "Password",
+                    type="password",
+                    key="customer_management_password"
+                )
+            )
+
+            if st.button(
+                "Unlock",
+                use_container_width=True,
+                key="unlock_customer_management_button"
+            ):
+
+                if (
+                    customer_management_password
+                    == CUSTOMER_MANAGEMENT_PASSWORD
+                ):
+
+                    st.session_state[
+                        "customer_management_authenticated"
+                    ] = True
+
+                    st.rerun()
+
+                else:
+
+                    st.error(
+                        "Incorrect password."
+                    )
+
+        # ===================================================
+        # UNLOCKED STATE
+        # ===================================================
+
+        else:
+
+            if st.button(
+                "🔒 Lock Customer Management",
+                use_container_width=True,
+                key="lock_customer_management_button"
+            ):
+
+                st.session_state[
+                    "customer_management_authenticated"
+                ] = False
+
+                st.rerun()
+
+            st.subheader(
+                "👤 Customer Management"
+            )
+
+
+            # ------------------------------------------------
+            # Customer Code
+            # ------------------------------------------------
+
+            customer_management_code = st.text_input(
+                "Customer Code",
+                placeholder="Enter customer code",
+                key="customer_management_code"
+            )
+
+
+            # ------------------------------------------------
+            # Customer Name
+            # ------------------------------------------------
+
+            customer_management_name = st.text_input(
+                "Customer Name",
+                placeholder="Enter customer name",
+                key="customer_management_name"
+            )
+
+
+            # ------------------------------------------------
+            # Add / Update
+            # ------------------------------------------------
+
+            if st.button(
+                "➕ Add / Update Customer",
+                use_container_width=True,
+                key="add_update_customer_button"
+            ):
+
+                try:
+
+                    result = (
+                        handler.add_or_update_customer(
+                            customer_management_code,
+                            customer_management_name
+                        )
+                    )
+
+
+                    # ------------------------------------------------
+                    # Save current workbook
+                    # ------------------------------------------------
+
+                    handler.save(
+                        st.session_state["temp_file"]
+                    )
+
+
+                    # ------------------------------------------------
+                    # Sync workbook
+                    # ------------------------------------------------
+
+                    sync_workbook(
+                        st.session_state["temp_file"],
+                        selected_year,
+                        selected_month
+                    )
+
+
+                    # ------------------------------------------------
+                    # Customer Audit
+                    # ------------------------------------------------
+
+                    add_customer_audit_record(
+
+                        customer_management_code,
+
+                        result["old_name"],
+
+                        result["new_name"],
+
+                        result["action"],
+
+                        st.session_state.get(
+                            "username",
+                            "Unknown"
+                        )
+                    )
+
+
+                    if result["action"] == "Added":
+
+                        st.success(
+                            f"✅ Customer "
+                            f"{customer_management_code.upper()} "
+                            f"added successfully."
+                        )
+
+                    else:
+
+                        st.success(
+                            f"✅ Customer "
+                            f"{customer_management_code.upper()} "
+                            f"updated successfully."
+                        )
+
+
+                    st.rerun()
+
+
+                except Exception as e:
+
+                    st.error(
+                        f"Unable to add/update customer: {e}"
+                    )
+
+
+            # ------------------------------------------------
+            # Delete Customer
+            # ------------------------------------------------
+
+            st.markdown("")
+
+            if st.button(
+                "🗑️ Delete Customer",
+                use_container_width=True,
+                key="delete_customer_button"
+            ):
+
+                st.session_state[
+                    "confirm_delete_customer"
+                ] = True
+
+            # ------------------------------------------------
+            # Delete Confirmation
+            # ------------------------------------------------
+
+            if st.session_state.get(
+                "confirm_delete_customer",
+                False
+            ):
+
+                st.warning(
+                    "⚠️ Historical collection data will be preserved."
+                )
+
+                st.write(
+                    f"Delete customer "
+                    f"**{customer_management_code}**?"
+                )
+
+                confirm_col1, confirm_col2 = st.columns(2)
+
+                # ------------------------------------------------
+                # Cancel
+                # ------------------------------------------------
+
+                with confirm_col1:
+
+                    if st.button(
+                        "Cancel",
+                        use_container_width=True,
+                        key="cancel_customer_delete"
+                    ):
+
+                        st.session_state[
+                            "confirm_delete_customer"
+                        ] = False
+
+                        st.rerun()
+
+
+                # ------------------------------------------------
+                # Confirm Delete
+                # ------------------------------------------------
+
+                with confirm_col2:
+
+                    if st.button(
+                        "Confirm Delete",
+                        use_container_width=True,
+                        key="confirm_customer_delete"
+                    ):
+
+                        try:
+
+                            # ----------------------------------------
+                            # Normalize customer code
+                            # ----------------------------------------
+
+                            delete_code = (
+                                str(customer_management_code)
+                                .strip()
+                                .upper()
+                            )
+
+
+                            # ----------------------------------------
+                            # Delete from current workbook
+                            # ----------------------------------------
+
+                            result = handler.delete_customer(
+                                delete_code
+                            )
+
+
+                            # ----------------------------------------
+                            # Save modified workbook
+                            # ----------------------------------------
+
+                            handler.save(
+                                st.session_state["temp_file"]
+                            )
+
+
+                            # ----------------------------------------
+                            # Sync modified workbook
+                            # ----------------------------------------
+
+                            sync_workbook(
+                                st.session_state["temp_file"],
+                                selected_year,
+                                selected_month
+                            )
+
+
+                            # ----------------------------------------
+                            # Reload the saved workbook
+                            # ----------------------------------------
+
+                            handler.load(
+                                st.session_state["temp_file"]
+                            )
+
+
+                            # ----------------------------------------
+                            # Clear customer-related session state
+                            # ----------------------------------------
+
+                            st.session_state.pop(
+                                "customer_management_code",
+                                None
+                            )
+
+                            st.session_state.pop(
+                                "customer_management_name",
+                                None
+                            )
+
+
+                            # ----------------------------------------
+                            # Customer Audit
+                            # ----------------------------------------
+
+                            add_customer_audit_record(
+
+                                delete_code,
+
+                                result["old_name"],
+
+                                None,
+
+                                "Deleted",
+
+                                st.session_state.get(
+                                    "username",
+                                    "Unknown"
+                                )
+                            )
+
+
+                            # ----------------------------------------
+                            # Reset confirmation
+                            # ----------------------------------------
+
+                            st.session_state[
+                                "confirm_delete_customer"
+                            ] = False
+
+                            # ----------------------------------------
+                            # Show delete success after rerun
+                            # ----------------------------------------
+
+                            st.session_state[
+                                "customer_delete_success"
+                            ] = (
+                                f"✅ Customer {delete_code} "
+                                f"deleted successfully."
+                            )
+
+                            st.rerun()
+
+                        except Exception as e:
+
+                            st.error(
+                                f"Unable to delete customer: {e}"
+                            )
+
+                # ------------------------------------------------
+                # Success message — FULL WIDTH
+                # ------------------------------------------------
+
+                if st.session_state.get(
+                    "customer_delete_success"
+                ):
+
+                    success_placeholder = st.empty()
+
+                    success_placeholder.success(
+                        st.session_state[
+                            "customer_delete_success"
+                        ]
+                    )
+
+                    import time
+
+                    time.sleep(3)
+
+                    success_placeholder.empty()
+
+                    st.session_state.pop(
+                        "customer_delete_success",
+                        None
+                    )
 
     st.markdown("---")
 
