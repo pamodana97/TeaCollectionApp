@@ -2388,34 +2388,29 @@ with st.sidebar:
                                 f"Unable to delete customer: {e}"
                             )
 
-                # ------------------------------------------------
-                # Success message — FULL WIDTH
-                # ------------------------------------------------
+            # ------------------------------------------------
+            # Customer Delete Success Message
+            # ------------------------------------------------
 
-                if st.session_state.get(
-                    "customer_delete_success"
-                ):
+            delete_success_message = st.session_state.pop(
+                "customer_delete_success",
+                None
+            )
 
-                    success_placeholder = st.empty()
+            if delete_success_message:
 
-                    success_placeholder.success(
-                        st.session_state[
-                            "customer_delete_success"
-                        ]
-                    )
+                success_placeholder = st.empty()
 
-                    import time
+                success_placeholder.success(
+                    delete_success_message
+                )
 
-                    time.sleep(3)
+                time.sleep(3)
 
-                    success_placeholder.empty()
+                success_placeholder.empty()
 
-                    st.session_state.pop(
-                        "customer_delete_success",
-                        None
-                    )
 
-    st.markdown("---")
+            st.markdown("---")
 
     # ---------------------------------------------------
     # Audit Panel
