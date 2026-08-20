@@ -2410,7 +2410,7 @@ with st.sidebar:
                 success_placeholder.empty()
 
 
-            st.markdown("---")
+    st.markdown("---")
 
     # ---------------------------------------------------
     # Audit Panel
