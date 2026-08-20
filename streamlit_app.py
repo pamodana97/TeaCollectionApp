@@ -2489,17 +2489,155 @@ with st.sidebar:
 
             st.subheader("📋 Audit History")
 
-            audit_records = get_audit_records()
+
+            # ---------------------------------------------------
+            # Get Both Audit Types
+            # ---------------------------------------------------
+
+            collection_audit_records = get_audit_records()
+
+            customer_audit_records = get_customer_audit_records()
+
+
+            # ---------------------------------------------------
+            # Combined Audit History
+            # ---------------------------------------------------
+
+            combined_audit_records = []
+
+
+            # ---------------------------------------------------
+            # Collection Audit Records
+            # ---------------------------------------------------
+
+            for record in collection_audit_records:
+
+                (
+                    record_id,
+                    customer_code,
+                    customer_name,
+                    year,
+                    month,
+                    day,
+                    old_amount,
+                    new_amount,
+                    username,
+                    action,
+                    updated_at
+                ) = record
+
+                combined_audit_records.append({
+
+                    "audit_type": "COLLECTION",
+
+                    "record_id": record_id,
+
+                    "customer_code": customer_code,
+
+                    "customer_name": customer_name,
+
+                    "year": year,
+
+                    "month": month,
+
+                    "day": day,
+
+                    "old_amount": old_amount,
+
+                    "new_amount": new_amount,
+
+                    "old_name": None,
+
+                    "new_name": None,
+
+                    "username": username,
+
+                    "action": action,
+
+                    "updated_at": updated_at
+                })
+
+
+            # ---------------------------------------------------
+            # Customer Audit Records
+            # ---------------------------------------------------
+
+            for record in customer_audit_records:
+
+                (
+                    record_id,
+                    customer_code,
+                    old_name,
+                    new_name,
+                    action,
+                    username,
+                    updated_at
+                ) = record
+
+                combined_audit_records.append({
+
+                    "audit_type": "CUSTOMER",
+
+                    "record_id": record_id,
+
+                    "customer_code": customer_code,
+
+                    "customer_name": (
+                        new_name
+                        if new_name is not None
+                        else old_name
+                    ),
+
+                    "year": None,
+
+                    "month": None,
+
+                    "day": None,
+
+                    "old_amount": None,
+
+                    "new_amount": None,
+
+                    "old_name": old_name,
+
+                    "new_name": new_name,
+
+                    "username": username,
+
+                    "action": action,
+
+                    "updated_at": updated_at
+                })
+
+
+            # ---------------------------------------------------
+            # Sort By Actual Update Time
+            # Newest First
+            # ---------------------------------------------------
+
+            combined_audit_records.sort(
+                key=lambda record: record["updated_at"],
+                reverse=True
+            )
+
+
+            # ---------------------------------------------------
+            # Latest 5 Records
+            # ---------------------------------------------------
+
+            latest_audit_records = (
+                combined_audit_records[:5]
+            )
 
             # ---------------------------------------------------
             # Download Audit History
             # ---------------------------------------------------
 
-            if audit_records:
+            if collection_audit_records or customer_audit_records:
 
                 audit_download_data = []
 
-                for record in audit_records:
+                for record in collection_audit_records:
 
                     (
                         record_id,
@@ -2540,7 +2678,6 @@ with st.sidebar:
                         )
                     })
 
-
                 audit_df = pd.DataFrame(
                     audit_download_data
                 )
@@ -2554,7 +2691,6 @@ with st.sidebar:
                     ascending=True
                 ).reset_index(drop=True)
 
-
                 # ---------------------------------------------------
                 # Create sequential Audit ID
                 # ---------------------------------------------------
@@ -2565,113 +2701,476 @@ with st.sidebar:
                 )
 
                 # ---------------------------------------------------
-                # Create Professional Excel Report
+                # Create Excel file
+                # IMPORTANT:
+                # Start from EXISTING workbook
                 # ---------------------------------------------------
+
+                from openpyxl import load_workbook
 
                 output = io.BytesIO()
 
-                with pd.ExcelWriter(
-                    output,
-                    engine="openpyxl"
-                ) as writer:
+                # Load your existing Tea Collection workbook
+                existing_workbook = load_workbook(
+                    st.session_state["temp_file"]
+                )
 
-                    audit_df.to_excel(
-                        writer,
-                        index=False,
-                        sheet_name="Audit History"
+                # ---------------------------------------------------
+                # Remove old Audit History sheet if it exists
+                # ---------------------------------------------------
+
+                if "Audit History" in existing_workbook.sheetnames:
+
+                    del existing_workbook["Audit History"]
+
+                # ---------------------------------------------------
+                # Create Audit History sheet
+                # ---------------------------------------------------
+
+                audit_worksheet = (
+                    existing_workbook.create_sheet(
+                        "Audit History"
+                    )
+                )
+
+                # ---------------------------------------------------
+                # Write Audit History
+                # ---------------------------------------------------
+
+                for column_index, column_name in enumerate(
+                    audit_df.columns,
+                    start=1
+                ):
+
+                    audit_worksheet.cell(
+                        row=1,
+                        column=column_index,
+                        value=column_name
                     )
 
-                    workbook = writer.book
+                for row_index, row_data in enumerate(
+                    audit_df.itertuples(index=False),
+                    start=2
+                ):
 
-                    worksheet = writer.sheets[
-                        "Audit History"
+                    for column_index, value in enumerate(
+                        row_data,
+                        start=1
+                    ):
+
+                        audit_worksheet.cell(
+                            row=row_index,
+                            column=column_index,
+                            value=value
+                        )
+
+                # ---------------------------------------------------
+                # Header Formatting
+                # ---------------------------------------------------
+
+                from openpyxl.styles import (
+                    Font,
+                    PatternFill,
+                    Alignment
+                )
+
+                header_fill = PatternFill(
+                    fill_type="solid",
+                    fgColor="1F2937"
+                )
+
+                header_font = Font(
+                    color="FFFFFF",
+                    bold=True
+                )
+
+                header_alignment = Alignment(
+                    horizontal="center",
+                    vertical="center"
+                )
+
+                for cell in audit_worksheet[1]:
+
+                    cell.fill = header_fill
+                    cell.font = header_font
+                    cell.alignment = header_alignment
+
+                # ---------------------------------------------------
+                # Freeze Header
+                # ---------------------------------------------------
+
+                audit_worksheet.freeze_panes = "A2"
+
+                # ---------------------------------------------------
+                # Enable Filter
+                # ---------------------------------------------------
+
+                audit_worksheet.auto_filter.ref = (
+                    audit_worksheet.dimensions
+                )
+
+                # ---------------------------------------------------
+                # Column Widths
+                # ---------------------------------------------------
+
+                column_widths = {
+                    "A": 10,
+                    "B": 18,
+                    "C": 28,
+                    "D": 10,
+                    "E": 15,
+                    "F": 10,
+                    "G": 22,
+                    "H": 14,
+                    "I": 18,
+                    "J": 18,
+                    "K": 18,
+                    "L": 25
+                }
+
+                for column, width in column_widths.items():
+
+                    audit_worksheet.column_dimensions[
+                        column
+                    ].width = width
+
+                # ---------------------------------------------------
+                # Cell Alignment
+                # ---------------------------------------------------
+
+                for row in audit_worksheet.iter_rows(
+                    min_row=2
+                ):
+
+                    for cell in row:
+
+                        cell.alignment = Alignment(
+                            vertical="center"
+                        )
+
+                # ---------------------------------------------------
+                # Action Formatting
+                # ---------------------------------------------------
+
+                for row in range(
+                    2,
+                    audit_worksheet.max_row + 1
+                ):
+
+                    action_cell = audit_worksheet.cell(
+                        row=row,
+                        column=8
+                    )
+
+                    action_value = action_cell.value
+
+                    if action_value == "Added":
+
+                        action_cell.fill = PatternFill(
+                            fill_type="solid",
+                            fgColor="DCFCE7"
+                        )
+
+                        action_cell.font = Font(
+                            color="166534",
+                            bold=True
+                        )
+
+                    elif action_value == "Updated":
+
+                        action_cell.fill = PatternFill(
+                            fill_type="solid",
+                            fgColor="DBEAFE"
+                        )
+
+                        action_cell.font = Font(
+                            color="1D4ED8",
+                            bold=True
+                        )
+
+                    elif action_value == "Deleted":
+
+                        action_cell.fill = PatternFill(
+                            fill_type="solid",
+                            fgColor="FEE2E2"
+                        )
+
+                        action_cell.font = Font(
+                            color="B91C1C",
+                            bold=True
+                        )
+
+                # ---------------------------------------------------
+                # Amount Formatting
+                # ---------------------------------------------------
+
+                for row in range(
+                    2,
+                    audit_worksheet.max_row + 1
+                ):
+
+                    audit_worksheet.cell(
+                        row=row,
+                        column=9
+                    ).number_format = "0.00"
+
+                    audit_worksheet.cell(
+                        row=row,
+                        column=10
+                    ).number_format = "0.00"
+
+                # ---------------------------------------------------
+                # Add Excel Table
+                # ---------------------------------------------------
+
+                from openpyxl.worksheet.table import (
+                    Table,
+                    TableStyleInfo
+                )
+
+                table_reference = (
+                    f"A1:L{audit_worksheet.max_row}"
+                )
+
+                audit_table = Table(
+                    displayName="AuditHistoryTable",
+                    ref=table_reference
+                )
+
+                table_style = TableStyleInfo(
+                    name="TableStyleMedium2",
+                    showFirstColumn=False,
+                    showLastColumn=False,
+                    showRowStripes=True,
+                    showColumnStripes=False
+                )
+
+                audit_table.tableStyleInfo = table_style
+
+                audit_worksheet.add_table(
+                    audit_table
+                )
+
+                audit_worksheet.row_dimensions[1].height = 25
+
+                # ---------------------------------------------------
+                # Customer History - Sheet 2
+                # ---------------------------------------------------
+
+                customer_history_data = []
+
+                for record in customer_audit_records:
+
+                    (
+                        record_id,
+                        customer_code,
+                        old_name,
+                        new_name,
+                        action,
+                        username,
+                        updated_at
+                    ) = record
+
+                    updated_time = datetime.fromisoformat(
+                        updated_at
+                    )
+
+                    customer_history_data.append({
+
+                        "Audit ID": record_id,
+
+                        "Customer Code": customer_code,
+
+                        "Previous Name": old_name,
+
+                        "New Name": new_name,
+
+                        "Action": action,
+
+                        "User": username,
+
+                        "Updated": updated_time.strftime(
+                            "%d-%m-%Y %I:%M:%S %p"
+                        )
+                    })
+
+
+                customer_history_df = pd.DataFrame(
+                    customer_history_data
+                )
+
+
+                # ---------------------------------------------------
+                # Sort oldest to newest
+                # ---------------------------------------------------
+
+                if not customer_history_df.empty:
+
+                    customer_history_df = (
+                        customer_history_df
+                        .sort_values(
+                            by="Audit ID",
+                            ascending=True
+                        )
+                        .reset_index(drop=True)
+                    )
+
+
+                    # -----------------------------------------------
+                    # Sequential numbering starting from 1
+                    # -----------------------------------------------
+
+                    customer_history_df["Audit ID"] = range(
+                        1,
+                        len(customer_history_df) + 1
+                    )
+
+                # ---------------------------------------------------
+                # Create Customer History Sheet
+                # ---------------------------------------------------
+
+                if "Customer History" in existing_workbook.sheetnames:
+
+                    del existing_workbook[
+                        "Customer History"
                     ]
 
 
-                    # ------------------------------------------------
-                    # Header Formatting
-                    # ------------------------------------------------
-
-                    from openpyxl.styles import (
-                        Font,
-                        PatternFill,
-                        Alignment,
-                        Border,
-                        Side
+                customer_history_sheet = (
+                    existing_workbook.create_sheet(
+                        "Customer History"
                     )
+                )
 
-                    header_fill = PatternFill(
-                        fill_type="solid",
-                        fgColor="1F2937"
+                # ---------------------------------------------------
+                # Create Customer History Sheet
+                # ---------------------------------------------------
+
+                if "Customer History" in existing_workbook.sheetnames:
+
+                    del existing_workbook[
+                        "Customer History"
+                    ]
+
+
+                customer_history_sheet = (
+                    existing_workbook.create_sheet(
+                        "Customer History"
                     )
-
-                    header_font = Font(
-                        color="FFFFFF",
-                        bold=True
-                    )
-
-                    header_alignment = Alignment(
-                        horizontal="center",
-                        vertical="center"
-                    )
+                )
 
 
-                    for cell in worksheet[1]:
+                # ---------------------------------------------------
+                # Write Customer History Headers
+                # ---------------------------------------------------
 
-                        cell.fill = header_fill
-                        cell.font = header_font
-                        cell.alignment = header_alignment
+                if not customer_history_df.empty:
+
+                    for column_index, column_name in enumerate(
+                        customer_history_df.columns,
+                        start=1
+                    ):
+
+                        customer_history_sheet.cell(
+                            row=1,
+                            column=column_index,
+                            value=column_name
+                        )
 
 
-                    # ------------------------------------------------
+                    # ---------------------------------------------------
+                    # Write Customer History Records
+                    # ---------------------------------------------------
+
+                    for row_index, row_data in enumerate(
+                        customer_history_df.itertuples(
+                            index=False
+                        ),
+                        start=2
+                    ):
+
+                        for column_index, value in enumerate(
+                            row_data,
+                            start=1
+                        ):
+
+                            customer_history_sheet.cell(
+                                row=row_index,
+                                column=column_index,
+                                value=value
+                            )
+
+                # ---------------------------------------------------
+                # Customer History Header Formatting
+                # ---------------------------------------------------
+
+                customer_header_fill = PatternFill(
+                    fill_type="solid",
+                    fgColor="1F2937"
+                )
+
+                customer_header_font = Font(
+                    color="FFFFFF",
+                    bold=True
+                )
+
+                customer_header_alignment = Alignment(
+                    horizontal="center",
+                    vertical="center"
+                )
+
+
+                if not customer_history_df.empty:
+
+                    for cell in customer_history_sheet[1]:
+
+                        cell.fill = customer_header_fill
+                        cell.font = customer_header_font
+                        cell.alignment = customer_header_alignment
+
+
+                    # ---------------------------------------------------
                     # Freeze Header
-                    # ------------------------------------------------
+                    # ---------------------------------------------------
 
-                    worksheet.freeze_panes = "A2"
+                    customer_history_sheet.freeze_panes = "A2"
 
 
-                    # ------------------------------------------------
+                    # ---------------------------------------------------
                     # Enable Filter
-                    # ------------------------------------------------
+                    # ---------------------------------------------------
 
-                    worksheet.auto_filter.ref = (
-                        worksheet.dimensions
+                    customer_history_sheet.auto_filter.ref = (
+                        customer_history_sheet.dimensions
                     )
 
 
-                    # ------------------------------------------------
+                    # ---------------------------------------------------
                     # Column Widths
-                    # ------------------------------------------------
+                    # ---------------------------------------------------
 
-                    column_widths = {
-
-                        "A": 10,   # Audit ID
-                        "B": 18,   # Customer Code
-                        "C": 28,   # Customer Name
-                        "D": 10,   # Year
-                        "E": 15,   # Month
-                        "F": 10,   # Day
-                        "G": 22,   # Collection Date
-                        "H": 14,   # Action
-                        "I": 18,   # Old Amount
-                        "J": 18,   # New Amount
-                        "K": 18,   # User
-                        "L": 25    # Updated
+                    customer_column_widths = {
+                        "A": 12,
+                        "B": 18,
+                        "C": 28,
+                        "D": 28,
+                        "E": 15,
+                        "F": 18,
+                        "G": 25
                     }
 
+                    for column, width in customer_column_widths.items():
 
-                    for column, width in column_widths.items():
-
-                        worksheet.column_dimensions[
+                        customer_history_sheet.column_dimensions[
                             column
                         ].width = width
 
 
-                    # ------------------------------------------------
-                    # Cell Alignment
-                    # ------------------------------------------------
+                    # ---------------------------------------------------
+                    # Vertical Alignment
+                    # ---------------------------------------------------
 
-                    for row in worksheet.iter_rows(
+                    for row in customer_history_sheet.iter_rows(
                         min_row=2
                     ):
 
@@ -2682,23 +3181,23 @@ with st.sidebar:
                             )
 
 
-                    # ------------------------------------------------
+                    # ---------------------------------------------------
                     # Action Formatting
-                    # ------------------------------------------------
+                    # ---------------------------------------------------
 
                     for row in range(
                         2,
-                        worksheet.max_row + 1
+                        customer_history_sheet.max_row + 1
                     ):
 
-                        action_cell = worksheet.cell(
-                            row=row,
-                            column=8
+                        action_cell = (
+                            customer_history_sheet.cell(
+                                row=row,
+                                column=5
+                            )
                         )
 
-                        action_value = (
-                            action_cell.value
-                        )
+                        action_value = action_cell.value
 
 
                         if action_value == "Added":
@@ -2740,45 +3239,20 @@ with st.sidebar:
                             )
 
 
-                    # ------------------------------------------------
-                    # Amount Formatting
-                    # ------------------------------------------------
-
-                    for row in range(
-                        2,
-                        worksheet.max_row + 1
-                    ):
-
-                        worksheet.cell(
-                            row=row,
-                            column=9
-                        ).number_format = '0.00'
-
-                        worksheet.cell(
-                            row=row,
-                            column=10
-                        ).number_format = '0.00'
-
-
-                    # ------------------------------------------------
+                    # ---------------------------------------------------
                     # Add Excel Table
-                    # ------------------------------------------------
+                    # ---------------------------------------------------
 
-                    from openpyxl.worksheet.table import (
-                        Table,
-                        TableStyleInfo
+                    customer_table_reference = (
+                        f"A1:G{customer_history_sheet.max_row}"
                     )
 
-                    table_reference = (
-                        f"A1:L{worksheet.max_row}"
+                    customer_table = Table(
+                        displayName="CustomerHistoryTable",
+                        ref=customer_table_reference
                     )
 
-                    audit_table = Table(
-                        displayName="AuditHistoryTable",
-                        ref=table_reference
-                    )
-
-                    table_style = TableStyleInfo(
+                    customer_table_style = TableStyleInfo(
                         name="TableStyleMedium2",
                         showFirstColumn=False,
                         showLastColumn=False,
@@ -2786,31 +3260,258 @@ with st.sidebar:
                         showColumnStripes=False
                     )
 
-                    audit_table.tableStyleInfo = (
-                        table_style
+                    customer_table.tableStyleInfo = (
+                        customer_table_style
                     )
 
-                    worksheet.add_table(
-                        audit_table
+                    customer_history_sheet.add_table(
+                        customer_table
+                    )
+
+                    customer_history_sheet.row_dimensions[
+                        1
+                    ].height = 25
+
+                # ===================================================
+                # Customer List - Sheet 3
+                # ===================================================
+
+                # ---------------------------------------------------
+                # Prepare Current Customer List
+                # ---------------------------------------------------
+
+                customer_list_df = customer_df[
+                    [
+                        "Customer Code",
+                        "Customer Name"
+                    ]
+                ].copy()
+
+
+                # Remove blank customer names
+
+                customer_list_df = customer_list_df.dropna(
+                    subset=["Customer Name"]
+                )
+
+
+                # Remove rows with empty customer names
+
+                customer_list_df = customer_list_df[
+                    customer_list_df["Customer Name"]
+                    .astype(str)
+                    .str.strip()
+                    .ne("")
+                ]
+
+
+                # Reset row numbers
+
+                customer_list_df = customer_list_df.reset_index(
+                    drop=True
+                )
+
+                # ---------------------------------------------------
+                # Create Customer List Sheet
+                # ---------------------------------------------------
+
+                if "Customer List" in existing_workbook.sheetnames:
+
+                    del existing_workbook[
+                        "Customer List"
+                    ]
+
+
+                customer_list_sheet = (
+                    existing_workbook.create_sheet(
+                        "Customer List"
+                    )
+                )
+
+
+                # ---------------------------------------------------
+                # Write Customer List Headers
+                # ---------------------------------------------------
+
+                for column_index, column_name in enumerate(
+                    customer_list_df.columns,
+                    start=1
+                ):
+
+                    customer_list_sheet.cell(
+                        row=1,
+                        column=column_index,
+                        value=column_name
                     )
 
 
-                    # ------------------------------------------------
-                    # Row Height
-                    # ------------------------------------------------
+                # ---------------------------------------------------
+                # Write Customer List Records
+                # ---------------------------------------------------
 
-                    worksheet.row_dimensions[1].height = 25
+                for row_index, row_data in enumerate(
+                    customer_list_df.itertuples(
+                        index=False
+                    ),
+                    start=2
+                ):
 
+                    for column_index, value in enumerate(
+                        row_data,
+                        start=1
+                    ):
+
+                        customer_list_sheet.cell(
+                            row=row_index,
+                            column=column_index,
+                            value=value
+                        )
+
+                # ---------------------------------------------------
+                # Customer List Formatting
+                # ---------------------------------------------------
+
+                customer_list_header_fill = PatternFill(
+                    fill_type="solid",
+                    fgColor="1F2937"
+                )
+
+                customer_list_header_font = Font(
+                    color="FFFFFF",
+                    bold=True
+                )
+
+                customer_list_header_alignment = Alignment(
+                    horizontal="center",
+                    vertical="center"
+                )
+
+
+                # ---------------------------------------------------
+                # Format Header
+                # ---------------------------------------------------
+
+                for cell in customer_list_sheet[1]:
+
+                    cell.fill = customer_list_header_fill
+
+                    cell.font = customer_list_header_font
+
+                    cell.alignment = (
+                        customer_list_header_alignment
+                    )
+
+
+                # ---------------------------------------------------
+                # Freeze Header
+                # ---------------------------------------------------
+
+                customer_list_sheet.freeze_panes = "A2"
+
+
+                # ---------------------------------------------------
+                # Enable Filter
+                # ---------------------------------------------------
+
+                customer_list_sheet.auto_filter.ref = (
+                    customer_list_sheet.dimensions
+                )
+
+
+                # ---------------------------------------------------
+                # Column Widths
+                # ---------------------------------------------------
+
+                customer_list_sheet.column_dimensions[
+                    "A"
+                ].width = 20
+
+
+                customer_list_sheet.column_dimensions[
+                    "B"
+                ].width = 30
+
+
+                # ---------------------------------------------------
+                # Align Customer List Data
+                # ---------------------------------------------------
+
+                for row in customer_list_sheet.iter_rows(
+                    min_row=2
+                ):
+
+                    for cell in row:
+
+                        cell.alignment = Alignment(
+                            vertical="center"
+                        )
+
+
+                # ---------------------------------------------------
+                # Add Excel Table
+                # ---------------------------------------------------
+
+                if customer_list_sheet.max_row >= 2:
+
+                    customer_list_table_reference = (
+                        f"A1:B{customer_list_sheet.max_row}"
+                    )
+
+                    customer_list_table = Table(
+                        displayName="CustomerListTable",
+                        ref=customer_list_table_reference
+                    )
+
+                    customer_list_table_style = TableStyleInfo(
+                        name="TableStyleMedium2",
+                        showFirstColumn=False,
+                        showLastColumn=False,
+                        showRowStripes=True,
+                        showColumnStripes=False
+                    )
+
+                    customer_list_table.tableStyleInfo = (
+                        customer_list_table_style
+                    )
+
+                    customer_list_sheet.add_table(
+                        customer_list_table
+                    )
+
+
+                # ---------------------------------------------------
+                # Header Height
+                # ---------------------------------------------------
+
+                customer_list_sheet.row_dimensions[
+                    1
+                ].height = 25
+
+                # ---------------------------------------------------
+                # Remove Unnecessary Sheets
+                # ---------------------------------------------------
+
+                for sheet_name in ["Sheet1", "Customers"]:
+
+                    if sheet_name in existing_workbook.sheetnames:
+
+                        del existing_workbook[sheet_name]
+
+                # ---------------------------------------------------
+                # Save workbook to memory
+                # ---------------------------------------------------
+
+                existing_workbook.save(
+                    output
+                )
 
                 output.seek(0)
-
 
                 # ---------------------------------------------------
                 # Download Button
                 # ---------------------------------------------------
 
                 st.download_button(
-
                     label="📥 Download Audit History",
 
                     data=output,
@@ -2832,7 +3533,11 @@ with st.sidebar:
 
                 st.markdown("---")
 
-            if not audit_records:
+            # ---------------------------------------------------
+            # Display Combined Audit History
+            # ---------------------------------------------------
+
+            if not latest_audit_records:
 
                 st.info(
                     "No audit records available."
@@ -2840,21 +3545,35 @@ with st.sidebar:
 
             else:
 
-                for record in audit_records[:5]:
+                for record in latest_audit_records:
 
-                    (
-                        record_id,
-                        customer_code,
-                        customer_name,
-                        year,
-                        month,
-                        day,
-                        old_amount,
-                        new_amount,
-                        username,
-                        action,
-                        updated_at
-                    ) = record
+                    audit_type = record["audit_type"]
+
+                    record_id = record["record_id"]
+
+                    customer_code = record["customer_code"]
+
+                    customer_name = record["customer_name"]
+
+                    old_name = record["old_name"]
+
+                    new_name = record["new_name"]
+
+                    year = record["year"]
+
+                    month = record["month"]
+
+                    day = record["day"]
+
+                    old_amount = record["old_amount"]
+
+                    new_amount = record["new_amount"]
+
+                    username = record["username"]
+
+                    action = record["action"]
+
+                    updated_at = record["updated_at"]
 
                     # ---------------------------------------------------
                     # Format Date / Time
@@ -2864,9 +3583,21 @@ with st.sidebar:
                         updated_at
                     )
 
-                    formatted_date = (
-                        f"{int(day):02d} {month} {year}"
-                    )
+                    # ---------------------------------------------------
+                    # Format Collection Date
+                    # ---------------------------------------------------
+
+                    if audit_type == "COLLECTION":
+
+                        formatted_date = (
+                            f"{int(day):02d} "
+                            f"{month} "
+                            f"{year}"
+                        )
+
+                    else:
+
+                        formatted_date = "-"
 
                     formatted_time = updated_time.strftime(
                         "%d %b %Y • %I:%M:%S %p"
@@ -2895,78 +3626,22 @@ with st.sidebar:
                         badge_icon = "🔴"
 
                     # ---------------------------------------------------
-                    # Amount Section
+                    # Audit Detail Section
                     # ---------------------------------------------------
 
-                    if action == "Added":
+                    if audit_type == "COLLECTION":
 
-                        amount_html = f"""
-                        <div style="
-                            padding:12px 0;
-                            border-top:1px solid #374151;
-                        ">
+                        # ------------------------------------------------
+                        # Collection Audit
+                        # ------------------------------------------------
+
+                        if action == "Added":
+
+                            amount_html = f"""
                             <div style="
-                                font-size:12px;
-                                color:#6B7280;
-                                margin-bottom:3px;
+                                padding:12px 0;
+                                border-top:1px solid #374151;
                             ">
-                                🍃 New Amount
-                            </div>
-
-                            <div style="
-                                font-size:18px;
-                                font-weight:600;
-                            ">
-                                {new_amount:g} Kg
-                            </div>
-                        </div>
-                        """
-
-                    elif action == "Updated":
-
-                        old_amount_display = (
-                            f"{old_amount:g} Kg"
-                            if old_amount is not None
-                            else "-"
-                        )
-
-                        new_amount_display = (
-                            f"{new_amount:g} Kg"
-                            if new_amount is not None
-                            else "-"
-                        )
-
-                        amount_html = f"""
-                        <div style="
-                            display:grid;
-                            grid-template-columns:1fr 1fr;
-                            gap:20px;
-                            padding:12px 0;
-                            border-top:1px solid #374151;
-                        ">
-
-                            <div>
-
-                                <div style="
-                                    font-size:12px;
-                                    color:#6B7280;
-                                    margin-bottom:3px;
-                                ">
-                                    🍃 Old Amount
-                                </div>
-
-                                <div style="
-                                    font-size:18px;
-                                    font-weight:600;
-                                    color:#F9FAFB;
-                                ">
-                                    {old_amount_display}
-                                </div>
-
-                            </div>
-
-
-                            <div>
 
                                 <div style="
                                     font-size:12px;
@@ -2979,45 +3654,246 @@ with st.sidebar:
                                 <div style="
                                     font-size:18px;
                                     font-weight:600;
-                                    color:#F9FAFB;
                                 ">
-                                    {new_amount_display}
+                                    {new_amount:g} Kg
                                 </div>
 
                             </div>
+                            """
 
-                        </div>
-                        """
+                        elif action == "Updated":
+
+                            old_amount_display = (
+                                f"{old_amount:g} Kg"
+                                if old_amount is not None
+                                else "-"
+                            )
+
+                            new_amount_display = (
+                                f"{new_amount:g} Kg"
+                                if new_amount is not None
+                                else "-"
+                            )
+
+                            amount_html = f"""
+                            <div style="
+                                display:grid;
+                                grid-template-columns:1fr 1fr;
+                                gap:20px;
+                                padding:12px 0;
+                                border-top:1px solid #374151;
+                            ">
+
+                                <div>
+
+                                    <div style="
+                                        font-size:12px;
+                                        color:#6B7280;
+                                        margin-bottom:3px;
+                                    ">
+                                        🍃 Old Amount
+                                    </div>
+
+                                    <div style="
+                                        font-size:18px;
+                                        font-weight:600;
+                                        color:#F9FAFB;
+                                    ">
+                                        {old_amount_display}
+                                    </div>
+
+                                </div>
+
+
+                                <div>
+
+                                    <div style="
+                                        font-size:12px;
+                                        color:#6B7280;
+                                        margin-bottom:3px;
+                                    ">
+                                        🍃 New Amount
+                                    </div>
+
+                                    <div style="
+                                        font-size:18px;
+                                        font-weight:600;
+                                        color:#F9FAFB;
+                                    ">
+                                        {new_amount_display}
+                                    </div>
+
+                                </div>
+
+                            </div>
+                            """
+
+                        else:
+
+                            removed_amount = (
+                                old_amount
+                                if old_amount is not None
+                                else 0
+                            )
+
+                            amount_html = f"""
+                            <div style="
+                                padding:12px 0;
+                                border-top:1px solid #374151;
+                            ">
+
+                                <div style="
+                                    font-size:12px;
+                                    color:#6B7280;
+                                    margin-bottom:3px;
+                                ">
+                                    🍃 Removed Amount
+                                </div>
+
+                                <div style="
+                                    font-size:18px;
+                                    font-weight:600;
+                                    color:#F9FAFB;
+                                ">
+                                    {removed_amount:g} Kg
+                                </div>
+
+                            </div>
+                            """
+
+
                     else:
 
-                        removed_amount = (
-                            old_amount
-                            if old_amount is not None
-                            else 0
+                        # ------------------------------------------------
+                        # Customer Management Audit
+                        # ------------------------------------------------
+
+                        old_name_display = (
+                            old_name
+                            if old_name is not None
+                            else "-"
                         )
 
-                        amount_html = f"""
-                        <div style="
-                            padding:12px 0;
-                            border-top:1px solid #374151;
-                        ">
-                            <div style="
-                                font-size:12px;
-                                color:#6B7280;
-                                margin-bottom:3px;
-                            ">
-                                🍃 Removed Amount
-                            </div>
+                        new_name_display = (
+                            new_name
+                            if new_name is not None
+                            else "-"
+                        )
 
+
+                        if action == "Added":
+
+                            customer_change_html = f"""
                             <div style="
-                                font-size:18px;
-                                font-weight:600;
-                                color:#F9FAFB;
+                                padding:12px 0;
+                                border-top:1px solid #374151;
                             ">
-                                {removed_amount:g} Kg
+
+                                <div style="
+                                    font-size:12px;
+                                    color:#6B7280;
+                                    margin-bottom:3px;
+                                ">
+                                    👤 Customer Added
+                                </div>
+
+                                <div style="
+                                    font-size:18px;
+                                    font-weight:600;
+                                    color:#F9FAFB;
+                                ">
+                                    {new_name_display}
+                                </div>
+
                             </div>
-                        </div>
-                        """
+                            """
+
+
+                        elif action == "Updated":
+
+                            customer_change_html = f"""
+                            <div style="
+                                display:grid;
+                                grid-template-columns:1fr 1fr;
+                                gap:20px;
+                                padding:12px 0;
+                                border-top:1px solid #374151;
+                            ">
+
+                                <div>
+
+                                    <div style="
+                                        font-size:12px;
+                                        color:#6B7280;
+                                        margin-bottom:3px;
+                                    ">
+                                        👤 Old Customer Name
+                                    </div>
+
+                                    <div style="
+                                        font-size:18px;
+                                        font-weight:600;
+                                        color:#F9FAFB;
+                                    ">
+                                        {old_name_display}
+                                    </div>
+
+                                </div>
+
+
+                                <div>
+
+                                    <div style="
+                                        font-size:12px;
+                                        color:#6B7280;
+                                        margin-bottom:3px;
+                                    ">
+                                        👤 New Customer Name
+                                    </div>
+
+                                    <div style="
+                                        font-size:18px;
+                                        font-weight:600;
+                                        color:#F9FAFB;
+                                    ">
+                                        {new_name_display}
+                                    </div>
+
+                                </div>
+
+                            </div>
+                            """
+
+
+                        else:
+
+                            customer_change_html = f"""
+                            <div style="
+                                padding:12px 0;
+                                border-top:1px solid #374151;
+                            ">
+
+                                <div style="
+                                    font-size:12px;
+                                    color:#6B7280;
+                                    margin-bottom:3px;
+                                ">
+                                    👤 Customer Removed
+                                </div>
+
+                                <div style="
+                                    font-size:18px;
+                                    font-weight:600;
+                                    color:#F9FAFB;
+                                ">
+                                    {old_name_display}
+                                </div>
+
+                            </div>
+                            """
+
+
+                        amount_html = customer_change_html
 
                     # ---------------------------------------------------
                     # Audit Card
@@ -3049,7 +3925,7 @@ with st.sidebar:
                                     font-weight:700;
                                     color:#6B7280;
                                 ">
-                                    AUDIT #{record_id}
+                                    {audit_type} AUDIT #{record_id}
                                 </div>
 
                                 <div style="
