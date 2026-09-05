@@ -1554,11 +1554,27 @@ styled_df = (
     )
 )
 
+# -------------------------------------------------------
+# Pin Customer Code and Customer Name
+# -------------------------------------------------------
+
+column_config = {
+    "Customer Code": st.column_config.Column(
+        "Customer Code",
+        pinned=True
+    ),
+
+    "Customer Name": st.column_config.Column(
+        "Customer Name",
+        pinned=True
+    )
+}
 
 table_event = st.dataframe(
     styled_df,
     use_container_width=True,
     height=500,
+    column_config=column_config,
     on_select="rerun",
     selection_mode="single-cell",
     key="tea_collection_table"
