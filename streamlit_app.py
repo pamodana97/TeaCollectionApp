@@ -262,6 +262,7 @@ if st.session_state["temp_file"] is None:
                 st.error(
                     f"Unable to create worksheet: {e}"
                 )
+                st.exception(e)
 
 
         # Do not execute Excel code until
