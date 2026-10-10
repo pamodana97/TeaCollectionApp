@@ -2139,13 +2139,24 @@ with st.sidebar:
                     changes = sync_master_template_from_current(
                         handler, TEMPLATE_PATH
                     )
-                    st.success(
-                        "✅ Master template synchronized with current "
-                        "worksheet customer list. "
-                        f"Added: {changes['added']}, "
-                        f"Updated: {changes['updated']}, "
-                        f"Deleted: {changes['deleted']}."
+                    total_changes = (
+                        changes["added"]
+                        + changes["updated"]
+                        + changes["deleted"]
                     )
+
+                    if total_changes == 0:
+                        st.success(
+                            "✅ Master template is already up to date. "
+                            "No additional customer changes were needed."
+                        )
+                    else:
+                        st.success(
+                            "✅ Master template updated successfully! "
+                            f"Added: {changes['added']}, "
+                            f"Updated: {changes['updated']}, "
+                            f"Deleted: {changes['deleted']}."
+                        )
                 except Exception as error:
                     st.error("Master template synchronization failed.")
                     st.exception(error)
