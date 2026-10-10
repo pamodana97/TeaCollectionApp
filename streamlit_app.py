@@ -42,8 +42,10 @@ from database import (
 from workbook_storage import (
     upload_workbook,
     download_workbook,
-    sync_workbook
+    sync_workbook,
+    get_master_template_bytes
 )
+from master_template import sync_master_template_from_current
 
 from audit_db import (
     initialize_audit_db,
@@ -92,6 +94,20 @@ initialize_audit_db()
 
 handler = ExcelHandler()
 
+
+def sync_master_or_stop():
+    """Current workbook is already saved before this function is called."""
+    try:
+        return sync_master_template_from_current(handler, TEMPLATE_PATH)
+    except Exception as error:
+        st.error(
+            "Customer change was saved to the current worksheet, but "
+            "master template sync failed. Open Customer Management and "
+            "click 'Sync Master Template' to retry. Do NOT repeat Add/Delete."
+        )
+        st.exception(error)
+        st.stop()
+
 # -------------------------------------------------------
 # Title
 # -------------------------------------------------------
@@ -139,10 +155,18 @@ if st.session_state["temp_file"] is None:
     # Try restoring workbook from Supabase
     # ---------------------------------------------------
 
-    restored_file = download_workbook(
-        selected_year_for_workbook,
-        selected_month_for_workbook
-    )
+    try:
+        restored_file = download_workbook(
+            selected_year_for_workbook,
+            selected_month_for_workbook
+        )
+    except Exception as error:
+        st.error(
+            "Could not connect to Supabase Storage. Your existing monthly "
+            "worksheet may still be stored safely. Please retry later."
+        )
+        st.exception(error)
+        st.stop()
 
 
     if restored_file is not None:
@@ -186,16 +210,10 @@ if st.session_state["temp_file"] is None:
                 # Check template
                 # ---------------------------------------
 
-                if not os.path.exists(
-                    TEMPLATE_PATH
-                ):
-
-                    st.error(
-                        "New Worksheet template "
-                        "could not be found."
-                    )
-
-                    st.stop()
+                # Prefer the persistent Supabase master template.
+                # Fall back to the bundled template only if the master
+                # has not yet been created.
+                template_bytes = get_master_template_bytes(TEMPLATE_PATH)
 
 
                 # ---------------------------------------
@@ -216,10 +234,8 @@ if st.session_state["temp_file"] is None:
                 # Copy template
                 # ---------------------------------------
 
-                shutil.copyfile(
-                    TEMPLATE_PATH,
-                    new_workbook.name
-                )
+                with open(new_workbook.name, "wb") as new_file:
+                    new_file.write(template_bytes)
 
 
                 # ---------------------------------------
@@ -2113,6 +2129,27 @@ with st.sidebar:
                 "👤 Customer Management"
             )
 
+            # One-time migration and manual recovery button.
+            if st.button(
+                "🔄 Sync Master Template",
+                use_container_width=True,
+                key="sync_master_template_button"
+            ):
+                try:
+                    changes = sync_master_template_from_current(
+                        handler, TEMPLATE_PATH
+                    )
+                    st.success(
+                        "✅ Master template synchronized with current "
+                        "worksheet customer list. "
+                        f"Added: {changes['added']}, "
+                        f"Updated: {changes['updated']}, "
+                        f"Deleted: {changes['deleted']}."
+                    )
+                except Exception as error:
+                    st.error("Master template synchronization failed.")
+                    st.exception(error)
+
 
             # ------------------------------------------------
             # Customer Code
@@ -2196,6 +2233,8 @@ with st.sidebar:
                         )
                     )
 
+                    # Keep master template aligned with current customers.
+                    sync_master_or_stop()
 
                     if result["action"] == "Added":
 
@@ -2377,6 +2416,8 @@ with st.sidebar:
                                 )
                             )
 
+                            # Keep master template aligned with current customers.
+                            sync_master_or_stop()
 
                             # ----------------------------------------
                             # Reset confirmation

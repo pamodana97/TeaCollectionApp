@@ -1,16 +1,20 @@
 import streamlit as st
 import tempfile
 import time
-
 import httpx
+
 from supabase import create_client
+from storage3.exceptions import StorageApiError
 
 
 BUCKET_NAME = "tea-workbooks"
+MASTER_TEMPLATE_OBJECT = "master/New Worksheet.xlsx"
 
-# Number of attempts for temporary network/DNS problems
 MAX_RETRIES = 4
 RETRY_DELAY = 2
+CONTENT_TYPE = (
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+)
 
 
 # -------------------------------------------------------
@@ -18,7 +22,6 @@ RETRY_DELAY = 2
 # -------------------------------------------------------
 
 def get_supabase_client():
-
     return create_client(
         st.secrets["SUPABASE_URL"],
         st.secrets["SUPABASE_SERVICE_KEY"]
@@ -26,141 +29,125 @@ def get_supabase_client():
 
 
 # -------------------------------------------------------
-# Retry Supabase Operation
+# Retry temporary network failures only
 # -------------------------------------------------------
 
 def run_with_retry(operation):
-
     last_error = None
 
-    for attempt in range(1, MAX_RETRIES + 1):
-
+    for attempt in range(MAX_RETRIES):
         try:
             return operation()
-
         except (
             httpx.ConnectError,
             httpx.ConnectTimeout,
-            httpx.ReadTimeout
-        ) as e:
+            httpx.ReadTimeout,
+            httpx.WriteTimeout
+        ) as error:
+            last_error = error
+            if attempt < MAX_RETRIES - 1:
+                time.sleep(RETRY_DELAY * (attempt + 1))
 
-            last_error = e
-
-            if attempt < MAX_RETRIES:
-                time.sleep(RETRY_DELAY * attempt)
-
-    # All attempts failed
     raise last_error
 
 
 # -------------------------------------------------------
-# Build Workbook Path
+# Storage helpers
 # -------------------------------------------------------
 
-def get_workbook_path(year, month):
-
-    return f"{int(year)}/{month}.xlsx"
-
-
-# -------------------------------------------------------
-# Upload / Replace Monthly Workbook
-# -------------------------------------------------------
-
-def upload_workbook(
-    file_bytes,
-    year,
-    month
-):
-
-    workbook_path = get_workbook_path(
-        year,
-        month
+def _is_object_missing(error):
+    status = str(getattr(error, "status", "")).strip()
+    message = str(error).lower()
+    # Do not mistake a network error or a missing bucket for a missing file.
+    return status == "404" and (
+        "object not found" in message
+        or "not_found" in message
     )
 
-    def upload():
 
-        # Create a fresh client for each retry
-        supabase = get_supabase_client()
-
+def _download_object(object_path):
+    def operation():
         return (
-            supabase.storage
-            .from_(BUCKET_NAME)
+            get_supabase_client()
+            .storage.from_(BUCKET_NAME)
+            .download(object_path)
+        )
+
+    try:
+        return run_with_retry(operation)
+    except StorageApiError as error:
+        if _is_object_missing(error):
+            return None
+        raise
+
+
+def _upload_object(object_path, file_bytes):
+    def operation():
+        return (
+            get_supabase_client()
+            .storage.from_(BUCKET_NAME)
             .upload(
-                path=workbook_path,
+                path=object_path,
                 file=file_bytes,
                 file_options={
-                    "content-type":
-                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    "content-type": CONTENT_TYPE,
                     "upsert": "true"
                 }
             )
         )
 
-    return run_with_retry(upload)
+    return run_with_retry(operation)
 
 
 # -------------------------------------------------------
-# Download Monthly Workbook
+# Monthly workbooks (unchanged storage locations)
 # -------------------------------------------------------
 
-def download_workbook(
-    year,
-    month
-):
+def get_workbook_path(year, month):
+    return f"{int(year)}/{month}.xlsx"
 
-    workbook_path = get_workbook_path(
-        year,
-        month
-    )
 
-    def download():
+def upload_workbook(file_bytes, year, month):
+    return _upload_object(get_workbook_path(year, month), file_bytes)
 
-        # Create a fresh client for each retry
-        supabase = get_supabase_client()
 
-        return (
-            supabase.storage
-            .from_(BUCKET_NAME)
-            .download(workbook_path)
-        )
+def download_workbook(year, month):
+    file_bytes = _download_object(get_workbook_path(year, month))
 
-    try:
-
-        file_bytes = run_with_retry(download)
-
-        temp = tempfile.NamedTemporaryFile(
-            delete=False,
-            suffix=".xlsx"
-        )
-
-        temp.write(file_bytes)
-        temp.close()
-
-        return temp.name
-
-    except Exception:
+    if file_bytes is None:
         return None
 
+    with tempfile.NamedTemporaryFile(
+        delete=False, suffix=".xlsx"
+    ) as temp:
+        temp.write(file_bytes)
+        return temp.name
+
+
+def sync_workbook(local_path, year, month):
+    with open(local_path, "rb") as file:
+        return upload_workbook(file.read(), year, month)
+
 
 # -------------------------------------------------------
-# Sync Updated Monthly Workbook
+# Persistent master template (separate from monthly files)
 # -------------------------------------------------------
 
-def sync_workbook(
-    local_path,
-    year,
-    month
-):
+def download_master_template():
+    # Returns None only if this particular object does not exist.
+    # Network/auth/bucket errors are raised, not treated as missing.
+    return _download_object(MASTER_TEMPLATE_OBJECT)
 
-    with open(
-        local_path,
-        "rb"
-    ) as file:
 
-        file_bytes = file.read()
+def upload_master_template(file_bytes):
+    return _upload_object(MASTER_TEMPLATE_OBJECT, file_bytes)
 
-    return upload_workbook(
-        file_bytes,
-        year,
-        month
-    )
+
+def get_master_template_bytes(bundled_template_path):
+    template_bytes = download_master_template()
+    if template_bytes is not None:
+        return template_bytes
+
+    # First-time setup: before the first master sync, use the repo template.
+    with open(bundled_template_path, "rb") as file:
+        return file.read()
